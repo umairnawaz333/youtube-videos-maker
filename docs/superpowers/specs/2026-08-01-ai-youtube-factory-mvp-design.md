@@ -219,11 +219,23 @@ entities, storing each fact with its source URL. This file is the sole source of
 the script; the writer may not introduce facts absent from it.
 
 **3. ScriptWriter** → `script.json`
-Fills the blueprint's story skeleton as an explicit `beats[]` array — hook, question,
-conflict, curiosity, reveal, twist, conclusion, call to action — each beat carrying a target
-duration. Total word count derives from `duration × 150 wpm`. The "introduce something new
-every 15–30 seconds" rule is enforced by schema validation: a beat whose target duration
-exceeds 30 seconds is rejected and regenerated.
+Total word count derives from `duration × 150 wpm`. The script is structured in two levels,
+which must not be conflated:
+
+- **`sections[]`** — the blueprint's eight-part story arc: hook, question, conflict,
+  curiosity, reveal, twist, conclusion, call to action. Always exactly these eight.
+- **`beats[]` within each section** — engagement units of 15–30 seconds each, carrying the
+  actual narration text.
+
+The two-level structure exists because the arc and the pacing rule scale differently. A
+45-second Short has eight sections of roughly one beat each. A ten-minute long-form video has
+the same eight sections but roughly 24 beats distributed across them. Modelling the arc as a
+flat `beats[]` array would cap total duration at eight beats × 30 seconds = four minutes,
+making long-form impossible.
+
+The "introduce something new every 15–30 seconds" rule is enforced by schema validation on
+beats: a beat whose target duration falls outside 15–30 seconds is rejected and regenerated.
+Sections have no duration cap; their length is the sum of their beats.
 
 **4. FactChecker** → `factcheck.json`
 Extracts atomic claims and labels each supported, unsupported, or contradicted against
@@ -240,9 +252,12 @@ Splits the script into scenes, assigning each a visual directive and a camera mo
 - `motion-graphic: timeline | map | stat | quote | list` — pure Remotion, no model, instant
 - `reuse: <sceneId>` — an earlier image under a different crop and camera move
 
-An image budget of roughly one image per 8–10 seconds of long-form narration is enforced, so
-a ten-minute video needs about seventy images rather than three hundred. Remaining time is
-filled with motion graphics, which is also what prevents the output feeling like a slideshow.
+An image budget of roughly one generated image per 8–10 seconds of narration is enforced, so a
+ten-minute video needs about seventy images rather than three hundred. Scenes are shorter than
+that budget allows, which is the point: a ten-minute video has 60–90 scenes drawn from about 70
+generated images, so most scenes carry an `sd-image` while the remainder are `motion-graphic`
+or `reuse` scenes cut between them. That mix — new imagery, data graphics, and re-framed
+returns to earlier images — is what prevents the output feeling like a slideshow.
 
 **6. SEO** → `seo.json`
 Generates twenty titles, scored by an LLM rubric on curiosity, search intent, simplicity, and
@@ -335,6 +350,11 @@ No values are hardcoded. `config/app.json` holds global settings; each niche is 
 
 A niche configuration carries its prompt guidance, voice selection, visual style suffix, music
 preference, trend sources, SEO rules, and a `monetizationRisk` field.
+
+**Precedence is explicit**, since voice and other fields can be specified in both places:
+per-run request → `app.json` → niche config → built-in default, with the leftmost present value
+winning. So a niche supplies the sensible voice for its subject matter, and a specific run can
+override it without editing any file.
 
 Eight niches ship in the MVP: tech, AI, programming, space, science, education, knowledge, and
 politics.
