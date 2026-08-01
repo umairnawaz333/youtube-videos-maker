@@ -1,0 +1,46 @@
+# Model weights and binaries — all downloads live in-repo but are never committed
+models/
+bin/
+
+# Per-run generated assets
+storage/
+
+# Music with unverified licenses
+assets/music/*
+!assets/music/.gitkeep
+!assets/music/LICENSES.md
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Secrets — YouTube OAuth
+client_secret*.json
+*token*.json
+.env
+.env.local
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Remotion
+.remotion/
+
+# macOS
+.DS_Store
+
+# Session history
+.remember/
