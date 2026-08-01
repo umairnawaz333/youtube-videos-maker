@@ -1,0 +1,20 @@
+{
+  "name": "youtube-videos-maker",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.base.json --noEmit",
+    "doctor": "tsx packages/pipeline/src/cli.ts doctor",
+    "pipeline:run": "tsx packages/pipeline/src/cli.ts run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
