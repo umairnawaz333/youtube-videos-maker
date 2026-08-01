@@ -19,7 +19,7 @@
 - **Stage order is grouped by model requirement**, exactly: `topic-scout, researcher, script-writer, fact-checker, scene-planner, seo, illustrator, thumbnailer, narrator, captioner, clip-gate, editor, quality-gate, publisher`. This ordering yields two model swaps per run; do not reorder.
 - **Every external capability sits behind an interface** in `@yt/core`. No stage may import a concrete provider. A stage cannot tell which model it is using.
 - **Every stage writes artifacts to disk and records completion in SQLite**, so a killed run resumes from its last completed stage.
-- **No `Date.now()` or `new Date()` inside engine code.** Inject `Clock`. Tests must be deterministic.
+- **No `Date.now()` or `new Date()` inside engine code.** Inject `Clock`. Tests must be deterministic. This binds TypeScript engine and stage code only; Prisma's database-side `@default(now())` and `@updatedAt` on audit columns are permitted, since no test asserts on them and no logic reads them.
 - **Story structure:** exactly 8 sections in order — `hook, question, conflict, curiosity, reveal, twist, conclusion, cta`. Beats within sections are 15–30 seconds each, schema-enforced.
 - **Format presets:** `shorts` = 1080×1920, 45–60 s, 8–12 scenes, ~10 images, 2 clips. `long` = 1920×1080, 480–600 s, 60–90 scenes, ~70 images, 6 clips. Both H.264 @ 30 fps.
 - **Config precedence:** per-run request → `app.json` → niche config → built-in default. Leftmost present value wins.
@@ -141,18 +141,24 @@ packages:
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b tsconfig.base.json --dry 2>/dev/null || tsc -p tsconfig.base.json --noEmit",
+    "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "doctor": "tsx packages/pipeline/src/cli.ts doctor",
     "pipeline:run": "tsx packages/pipeline/src/cli.ts run"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
+    "prisma": "^5.22.0",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
 }
 ```
+
+`prisma` is a root devDependency, not only a `@yt/db` one, because the Vitest global setup
+invokes `pnpm exec prisma` from the repository root. pnpm does not hoist a workspace package's
+binaries to the root `node_modules/.bin`, so a `@yt/db`-only dependency would not be found
+there. `@types/node` tracks the Node 26 runtime, since Task 13 uses `fs.statfs`.
 
 `tsconfig.base.json`:
 

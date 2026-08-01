@@ -44,3 +44,4 @@ client_secret*.json
 
 # Session history
 .remember/
+.superpowers/
