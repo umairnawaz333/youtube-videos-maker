@@ -1,0 +1,11 @@
+{
+  "id": "education",
+  "label": "Education",
+  "promptGuidance": "Teach exactly one transferable idea and check understanding twice within the video. Build from a concrete case to the general rule, never the reverse.",
+  "voice": "female",
+  "styleSuffix": "warm illustrated diagram style, paper texture, limited ochre and slate palette",
+  "music": "ambient-warm",
+  "trendSources": ["wikipedia-top", "reddit"],
+  "seoRules": "Promise one specific skill or idea. Avoid vague 'everything you need to know' framing.",
+  "monetizationRisk": "low"
+}

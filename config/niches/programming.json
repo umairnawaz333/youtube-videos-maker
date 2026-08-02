@@ -1,0 +1,11 @@
+{
+  "id": "programming",
+  "label": "Programming",
+  "promptGuidance": "Take one bug, constraint, or design decision and follow it to its consequence. Show the wrong approach before the right one. Assume the viewer writes code but does not know this domain.",
+  "voice": "male",
+  "styleSuffix": "dark editor aesthetic, monospaced overlays, teal and amber accents, crisp geometry",
+  "music": "lo-fi-minimal",
+  "trendSources": ["hackernews", "reddit"],
+  "seoRules": "Include the language or tool name. Frame as a problem the viewer has hit.",
+  "monetizationRisk": "low"
+}

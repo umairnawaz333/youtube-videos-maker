@@ -1,0 +1,11 @@
+{
+  "id": "tech",
+  "label": "Technology",
+  "promptGuidance": "Explain one piece of technology through the problem it was built to solve. Open on the failure that made it necessary. Avoid release-note recitation; no dated claims that expire within a month.",
+  "voice": "male",
+  "styleSuffix": "clean industrial product photography, soft studio light, shallow depth of field, muted palette",
+  "music": "ambient-pulse",
+  "trendSources": ["hackernews", "wikipedia-top"],
+  "seoRules": "Name the technology in the first four words. Prefer 'how' and 'why' over 'top N'.",
+  "monetizationRisk": "low"
+}

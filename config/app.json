@@ -1,0 +1,23 @@
+{
+  "niche": "space",
+  "language": "English",
+  "videoType": "long",
+  "duration": 8,
+  "voice": "male",
+  "upload": true,
+  "captions": true,
+  "thumbnail": true,
+  "autoPublish": false,
+  "clips": {
+    "enabled": true,
+    "source": "manual",
+    "budget": { "shorts": 2, "long": 6 },
+    "placement": ["hook", "reveal", "twist"],
+    "maxSeconds": 8,
+    "stripAudio": true,
+    "fallback": "image",
+    "waitTimeoutHours": 72
+  },
+  "brandCorner": { "enabled": true, "position": "bottom-right" },
+  "retries": { "llm": 3, "network": 3, "render": 1, "local": 1 }
+}

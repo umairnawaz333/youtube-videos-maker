@@ -1,0 +1,11 @@
+{
+  "id": "knowledge",
+  "label": "General Knowledge",
+  "promptGuidance": "Start from a fact that contradicts common assumption, then explain why the assumption is widespread. Every surprising claim must be traceable to the research file.",
+  "voice": "male",
+  "styleSuffix": "editorial documentary photography, natural light, film grain, desaturated palette",
+  "music": "ambient-drone",
+  "trendSources": ["wikipedia-top", "google-trends"],
+  "seoRules": "State the counterintuitive fact plainly. Do not withhold the subject to manufacture mystery.",
+  "monetizationRisk": "medium"
+}
