@@ -114,6 +114,16 @@ export interface ProviderBundle {
   trend: TrendProvider
 }
 
+/**
+ * Providers as a stage sees them. Eviction is the ModelBroker's job: a stage that
+ * unloaded a model the broker still records as resident would cause the exact
+ * thrash the broker exists to prevent, so `unload` is not reachable from here.
+ */
+export type StageProviderBundle = Omit<ProviderBundle, 'llm' | 'image'> & {
+  llm: Omit<LlmProvider, 'unload'>
+  image: Omit<ImageProvider, 'unload'>
+}
+
 /** DI tokens for the NestJS wiring introduced in Plan 4. */
 export const PROVIDER_TOKENS = {
   llm: 'LLM_PROVIDER',

@@ -4,7 +4,7 @@
   "type": "commonjs",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.base.json --noEmit && vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "doctor": "tsx packages/pipeline/src/cli.ts doctor",

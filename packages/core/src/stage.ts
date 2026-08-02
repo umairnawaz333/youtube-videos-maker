@@ -2,7 +2,7 @@ import type { z } from 'zod'
 import type { ModelRequirement, StageName } from './domain'
 import type { FormatPreset } from './presets'
 import type { AppConfig, NicheConfig } from './schemas/config'
-import type { Clock, ProviderBundle } from './providers'
+import type { Clock, StageProviderBundle } from './providers'
 
 export interface RunLogger {
   info(message: string, meta?: Record<string, unknown>): void
@@ -64,7 +64,7 @@ export interface RunContext {
   artifacts: ArtifactStore
   topics: TopicStore
   clipRequests: ClipRequestStore
-  providers: ProviderBundle
+  providers: StageProviderBundle
   log: RunLogger
   clock: Clock
 }
