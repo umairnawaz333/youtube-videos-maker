@@ -69,6 +69,16 @@ export const resolveConfig = ({ request, app, niche }: ResolveConfigInput): Reso
 
   const validated = AppConfigSchema.parse(merged)
 
+  // The scalar `niche` field and the attached `nicheConfig` must name the same
+  // niche. Without this check a request/app override of `niche` could outrank
+  // `nicheLayer.niche` while `nicheConfig` still carries the originally-passed
+  // niche's data, producing a schema-valid but internally contradictory config.
+  if (validated.niche !== parsedNiche.data.id) {
+    throw new Error(
+      `resolved niche '${validated.niche}' does not match the supplied niche config '${parsedNiche.data.id}' - the request/app config and the niche argument disagree`,
+    )
+  }
+
   return {
     ...validated,
     nicheConfig: parsedNiche.data,

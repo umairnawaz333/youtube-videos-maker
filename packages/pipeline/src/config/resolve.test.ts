@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_APP_CONFIG } from '@yt/core'
+import { DEFAULT_APP_CONFIG, type AppConfig } from '@yt/core'
 import { resolveConfig } from '@yt/pipeline'
 
 const niche = {
@@ -80,5 +80,71 @@ describe('resolveConfig precedence', () => {
     expect(() => resolveConfig({ niche, app: { videoType: 'square' } })).toThrow(
       /app config is invalid/,
     )
+  })
+
+  it('rejects a resolved niche id that disagrees with the supplied niche config', () => {
+    // niche argument is 'space', but the request asks to resolve as 'politics' -
+    // the scalar `niche` field and `nicheConfig` would otherwise disagree.
+    expect(() => resolveConfig({ niche, request: { niche: 'politics' } })).toThrow(
+      /resolved niche 'politics' does not match the supplied niche config 'space'/,
+    )
+  })
+
+  it('resolves normally when the request niche agrees with the supplied niche config', () => {
+    const resolved = resolveConfig({ niche, request: { niche: 'space' } })
+    expect(resolved.niche).toBe('space')
+    expect(resolved.nicheConfig.id).toBe('space')
+  })
+
+  it('merges nested brandCorner config per key instead of replacing the object', () => {
+    const resolved = resolveConfig({
+      niche,
+      request: { brandCorner: { enabled: false } as unknown as AppConfig['brandCorner'] },
+    })
+    expect(resolved.brandCorner.enabled).toBe(false)
+    expect(resolved.brandCorner.position).toBe(DEFAULT_APP_CONFIG.brandCorner.position)
+  })
+
+  it('merges nested retries config per key instead of replacing the object', () => {
+    const resolved = resolveConfig({
+      niche,
+      request: { retries: { network: 9 } as unknown as AppConfig['retries'] },
+    })
+    expect(resolved.retries.network).toBe(9)
+    expect(resolved.retries.llm).toBe(DEFAULT_APP_CONFIG.retries.llm)
+    expect(resolved.retries.render).toBe(DEFAULT_APP_CONFIG.retries.render)
+    expect(resolved.retries.local).toBe(DEFAULT_APP_CONFIG.retries.local)
+  })
+
+  it('applies an app-layer nested override with siblings intact when the request is silent', () => {
+    const resolved = resolveConfig({
+      niche,
+      app: {
+        ...DEFAULT_APP_CONFIG,
+        retries: { ...DEFAULT_APP_CONFIG.retries, network: 20 },
+      },
+    })
+    expect(resolved.retries.network).toBe(20)
+    expect(resolved.retries.llm).toBe(DEFAULT_APP_CONFIG.retries.llm)
+    expect(resolved.retries.render).toBe(DEFAULT_APP_CONFIG.retries.render)
+    expect(resolved.retries.local).toBe(DEFAULT_APP_CONFIG.retries.local)
+  })
+
+  it('lets the request win over the app layer on the same nested key while preserving each layer\'s untouched keys', () => {
+    // app overrides llm and network; request overrides only network.
+    // Expect: network from request (wins), llm from app (app-only key survives),
+    // render/local untouched at their built-in defaults.
+    const resolved = resolveConfig({
+      niche,
+      app: {
+        ...DEFAULT_APP_CONFIG,
+        retries: { ...DEFAULT_APP_CONFIG.retries, llm: 10, network: 20 },
+      },
+      request: { retries: { network: 99 } as unknown as AppConfig['retries'] },
+    })
+    expect(resolved.retries.network).toBe(99)
+    expect(resolved.retries.llm).toBe(10)
+    expect(resolved.retries.render).toBe(DEFAULT_APP_CONFIG.retries.render)
+    expect(resolved.retries.local).toBe(DEFAULT_APP_CONFIG.retries.local)
   })
 })
