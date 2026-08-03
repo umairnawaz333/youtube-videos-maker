@@ -50,4 +50,9 @@ describe('FileArtifactStore', () => {
   it('fails clearly when the artifact is absent', async () => {
     await expect(store.read('videoSpec', Schema)).rejects.toThrow(/artifact 'videoSpec' not found/)
   })
+
+  it('fails with the readable artifact error, not a raw SyntaxError, when the file is truncated/malformed JSON', async () => {
+    await fs.writeFile(path.join(root, 'scenes.json'), '{ "topicTitle": "Venus", "count":')
+    await expect(store.read('scenes', Schema)).rejects.toThrow(/artifact 'scenes' failed validation on read: not valid JSON/)
+  })
 })

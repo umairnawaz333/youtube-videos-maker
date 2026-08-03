@@ -33,7 +33,15 @@ export class FileArtifactStore implements ArtifactStore {
       throw new Error(`artifact '${name}' not found at ${this.file(name)}`)
     }
 
-    const parsed = schema.safeParse(JSON.parse(raw))
+    let json: unknown
+    try {
+      json = JSON.parse(raw)
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new Error(`artifact '${name}' failed validation on read: not valid JSON: ${reason}`)
+    }
+
+    const parsed = schema.safeParse(json)
     if (!parsed.success) {
       throw new Error(
         `artifact '${name}' failed validation on read: ${JSON.stringify(parsed.error.issues)}`,
