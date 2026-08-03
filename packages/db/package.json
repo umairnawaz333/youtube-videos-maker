@@ -1,0 +1,18 @@
+{
+  "name": "@yt/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "db:push": "prisma db push --schema prisma/schema.prisma",
+    "db:generate": "prisma generate --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@yt/core": "workspace:*"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}

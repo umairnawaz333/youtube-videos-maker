@@ -45,3 +45,8 @@ client_secret*.json
 # Session history
 .remember/
 .superpowers/
+
+# Prisma generated client
+packages/db/generated/
+# Test databases
+storage/test-*.db
