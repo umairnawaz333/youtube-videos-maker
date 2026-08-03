@@ -43,6 +43,21 @@ importers:
         specifier: ^5.22.0
         version: 5.22.0
 
+  packages/pipeline:
+    dependencies:
+      '@yt/core':
+        specifier: workspace:*
+        version: link:../core
+      '@yt/db':
+        specifier: workspace:*
+        version: link:../db
+      '@yt/providers':
+        specifier: workspace:*
+        version: link:../providers
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+
   packages/providers:
     dependencies:
       '@yt/core':
