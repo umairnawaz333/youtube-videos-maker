@@ -246,4 +246,70 @@ describe('StageRunner', () => {
     expect(recorded).toMatchObject({ status: 'failed', attempts: 1 })
     expect((await repos.runs.get('run-1'))!.status).toBe('failed')
   })
+
+  // Fix round 1: the sibling path the acquire() amendment didn't cover. The `finally`
+  // block's own `broker.evictAll()` can also reject (Task 8 hardening rethrows a
+  // failing unload()), and a throw from `finally` replaces whatever the `try` block
+  // already returned — so execute() must catch that rejection, log it, and still
+  // resolve with the RunResult it had already computed.
+  it('resolves with awaiting_review and logs an error when evictAll fails after an otherwise successful run', async () => {
+    const logs: { level: string; message: string; meta?: Record<string, unknown> }[] = []
+    const flakySd: Evictable = {
+      id: 'sd',
+      unload: async () => {
+        throw new Error('sd unload failed')
+      },
+    }
+    const flakyBroker = new ModelBroker([evictable('llm'), flakySd])
+    const stages = STAGE_NAMES.map((n) => fakeStage(n))
+    const flakyRunner = new StageRunner({
+      stages,
+      broker: flakyBroker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+    })
+    const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
+
+    // sd is only evicted by the final evictAll() (never mid-run — no stage after the
+    // sd block needs a different model), so this is a genuinely successful run whose
+    // cleanup alone fails.
+    await expect(flakyRunner.execute(ctx)).resolves.toMatchObject({ status: 'awaiting_review' })
+
+    const errorLog = logs.find((l) => l.level === 'error')
+    expect(errorLog?.message).toMatch(/model memory/i)
+    expect(errorLog?.message).toContain('sd unload failed')
+    expect(errorLog?.meta).toMatchObject({ resident: 'sd' })
+  })
+
+  it('preserves the original failure reason when evictAll also fails during cleanup', async () => {
+    const logs: { level: string; message: string; meta?: Record<string, unknown> }[] = []
+    const flakyLlm: Evictable = {
+      id: 'llm',
+      unload: async () => {
+        throw new Error('llm unload failed')
+      },
+    }
+    const flakyBroker = new ModelBroker([flakyLlm, evictable('sd')])
+    const stages = STAGE_NAMES.map((n) =>
+      n === 'script-writer' ? fakeStage(n, { failTimes: 99 }) : fakeStage(n),
+    )
+    const flakyRunner = new StageRunner({
+      stages,
+      broker: flakyBroker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+    })
+    const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
+
+    const execution = flakyRunner.execute(ctx)
+    await expect(execution).resolves.toMatchObject({ status: 'failed', stoppedAt: 'script-writer' })
+
+    const result = await execution
+    expect(result.reason).toContain('script-writer failed')
+    expect((await repos.runs.get('run-1'))!.status).toBe('failed')
+
+    const errorLog = logs.find((l) => l.level === 'error')
+    expect(errorLog?.message).toMatch(/model memory/i)
+    expect(errorLog?.meta).toMatchObject({ resident: 'llm' })
+  })
 })

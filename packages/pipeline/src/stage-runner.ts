@@ -59,8 +59,23 @@ export class StageRunner {
       await repos.runs.setStatus(ctx.runId, 'awaiting_review')
       return { status: 'awaiting_review' }
     } finally {
-      // Always give the memory back, however the run ended.
-      await broker.evictAll()
+      // Always attempt to give the memory back, however the run ended. This must not
+      // rethrow: a throw from a `finally` block replaces whatever the `try` block above
+      // already returned, so a rejecting evictAll() here would silently discard the
+      // RunResult we just computed and make execute() reject instead of resolve —
+      // exactly the contract violation the acquire() amendment closed on the other
+      // path. The run's outcome is already decided and stays accurate regardless of
+      // whether cleanup succeeds (a failed video run is still failed; a produced video
+      // is still produced); a stuck model only affects the *next* run's first
+      // acquire(), which will surface the repeat failure as a normal stage failure.
+      try {
+        await broker.evictAll()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        ctx.log.error(`model memory was NOT released after the run: ${message}`, {
+          resident: broker.resident,
+        })
+      }
     }
   }
 
