@@ -1,3 +1,6 @@
 export * from './model-broker'
 export * from './config/resolve'
 export * from './config/load'
+export * from './storage/paths'
+export * from './storage/artifacts'
+export * from './logger'
