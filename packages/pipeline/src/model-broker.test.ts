@@ -117,4 +117,150 @@ describe('ModelBroker', () => {
     const broker = new ModelBroker([])
     await expect(broker.acquire('llm')).rejects.toThrow(/no evictable registered for 'llm'/)
   })
+
+  it('serialises concurrent acquisitions deterministically, proving eviction happens strictly between the two leases', async () => {
+    const observed: string[] = []
+    const llmUnload = vi.fn(async () => {
+      observed.push('llm-unload')
+    })
+    const sdUnload = vi.fn(async () => {
+      observed.push('sd-unload')
+    })
+    const llmEvictable: Evictable = { id: 'llm', unload: llmUnload }
+    const sdEvictable: Evictable = { id: 'sd', unload: sdUnload }
+    const broker = new ModelBroker([llmEvictable, sdEvictable])
+
+    // A caller-controlled gate instead of a real timer: the ordering below is
+    // forced by the promise dependency graph, not by wall-clock racing, so it
+    // cannot be flaky regardless of how many microtask ticks each `await`
+    // inside the broker actually takes.
+    let openGate!: () => void
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve
+    })
+
+    const first = broker.acquire('llm').then(async (lease) => {
+      observed.push('llm-start')
+      await gate
+      observed.push('llm-end')
+      lease.release()
+    })
+
+    const second = broker.acquire('sd').then((lease) => {
+      observed.push('sd-start')
+      lease.release()
+    })
+
+    // Drain every currently-pending microtask (but not a real timer) so the
+    // first acquisition's synchronous-until-the-gate work has definitely run,
+    // while the second remains blocked behind it in the FIFO queue.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(observed).toEqual(['llm-start'])
+
+    openGate()
+    await Promise.all([first, second])
+
+    // Eviction of llm must fall strictly between the first lease ending and
+    // the second one starting — never before llm-end, never after sd-start.
+    expect(observed).toEqual(['llm-start', 'llm-end', 'llm-unload', 'sd-start'])
+  })
+
+  it('rejects the eviction when unload() rejects, then still admits a later acquire (no deadlock)', async () => {
+    const llm = evictable('llm')
+    const sd = evictable('sd')
+    const broker = new ModelBroker([llm.evictable, sd.evictable])
+
+    ;(await broker.acquire('llm')).release()
+
+    llm.unload.mockRejectedValueOnce(new Error('unload failed'))
+    await expect(broker.acquire('sd')).rejects.toThrow('unload failed')
+
+    // Fail closed: the incumbent really is still loaded.
+    expect(broker.resident).toBe('llm')
+
+    // If the failed eviction had leaked the lock, this would hang forever
+    // rather than resolve — this is the deadlock regression test.
+    await expect(broker.acquire('llm')).resolves.toBeDefined()
+  })
+
+  it('evictAll() waits for a held lease before nulling residency', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+    const order: string[] = []
+
+    const lease = await broker.acquire('llm')
+    expect(broker.resident).toBe('llm')
+
+    const evictAllPromise = broker.evictAll().then(() => {
+      order.push('evictAll-done')
+    })
+
+    // Give evictAll a chance to run ahead if it (incorrectly) bypassed the queue.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(broker.resident).toBe('llm')
+    order.push('still-resident-checked')
+
+    lease.release()
+    await evictAllPromise
+
+    expect(order).toEqual(['still-resident-checked', 'evictAll-done'])
+    expect(llm.unload).toHaveBeenCalledTimes(1)
+    expect(broker.resident).toBeNull()
+  })
+
+  it('evictAll() racing a concurrent acquire() for the same model does not double-unload or leave a stale null residency', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+
+    ;(await broker.acquire('llm')).release()
+    expect(llm.unload).not.toHaveBeenCalled()
+
+    const evictAllPromise = broker.evictAll()
+    const acquirePromise = broker.acquire('llm')
+
+    const lease = await acquirePromise
+    // Must not observe a stale null while this lease is live.
+    expect(broker.resident).toBe('llm')
+
+    lease.release()
+    await evictAllPromise
+
+    expect(llm.unload).toHaveBeenCalledTimes(1)
+  })
+
+  it('release() is idempotent: a second call does not double-unlock the queue', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+
+    const lease = await broker.acquire('llm')
+    lease.release()
+    lease.release()
+
+    await expect(broker.acquire('llm')).resolves.toBeDefined()
+  })
+
+  it('evictAll() is a safe no-op with nothing resident, even called twice in a row', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+
+    await broker.evictAll()
+    await broker.evictAll()
+
+    expect(llm.unload).not.toHaveBeenCalled()
+    expect(broker.resident).toBeNull()
+  })
+
+  it("acquire('none') resolves immediately even while a model lease is held", async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+
+    const lease = await broker.acquire('llm')
+
+    // If 'none' queued behind the still-held llm lease, this would hang.
+    const noneLease = await broker.acquire('none')
+    noneLease.release()
+
+    expect(broker.resident).toBe('llm')
+    lease.release()
+  })
 })
