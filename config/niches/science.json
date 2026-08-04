@@ -1,0 +1,11 @@
+{
+  "id": "science",
+  "label": "Science",
+  "promptGuidance": "Build the video around one experiment and what it ruled out. Name the uncertainty rather than smoothing it away. No health, medical, or dietary advice.",
+  "voice": "female",
+  "styleSuffix": "macro laboratory photography, clean white surfaces, precise focus, cool daylight",
+  "music": "ambient-warm",
+  "trendSources": ["wikipedia-top", "arxiv"],
+  "seoRules": "Pose the question the experiment answered. Avoid absolute claims.",
+  "monetizationRisk": "low"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ai",
+  "label": "Artificial Intelligence",
+  "promptGuidance": "Explain one AI idea using a concrete worked example a viewer can follow without maths. Never anthropomorphise the model. State plainly what is demonstrated versus what is speculated.",
+  "voice": "male",
+  "styleSuffix": "abstract data visualisation, glowing nodes on deep navy, volumetric light, high contrast",
+  "music": "ambient-pulse",
+  "trendSources": ["arxiv", "hackernews"],
+  "seoRules": "Lead with the capability, not the model name, since model names date quickly.",
+  "monetizationRisk": "low"
+}

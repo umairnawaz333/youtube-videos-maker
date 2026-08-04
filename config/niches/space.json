@@ -1,0 +1,11 @@
+{
+  "id": "space",
+  "label": "Space",
+  "promptGuidance": "Explain one cosmic phenomenon through a single concrete object rather than a survey. Use scale comparisons a viewer can picture. Distinguish measurement from inference.",
+  "voice": "male",
+  "styleSuffix": "cinematic astrophotography, deep blacks, volumetric nebula light, hard rim lighting",
+  "music": "ambient-drone",
+  "trendSources": ["wikipedia-top", "arxiv"],
+  "seoRules": "Lead with the object, not the concept. Numbers in titles earn clicks here.",
+  "monetizationRisk": "low"
+}

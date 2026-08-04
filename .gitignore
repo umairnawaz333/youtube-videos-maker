@@ -3,7 +3,7 @@ models/
 bin/
 
 # Per-run generated assets
-storage/
+/storage/
 
 # Music with unverified licenses
 assets/music/*
@@ -44,3 +44,9 @@ client_secret*.json
 
 # Session history
 .remember/
+.superpowers/
+
+# Prisma generated client
+packages/db/generated/
+# Test databases
+storage/test-*.db

@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Run {
+  id        String   @id
+  niche     String
+  format    String
+  status    String   @default("queued")
+  videoId   String?
+  createdAt DateTime
+  updatedAt DateTime @updatedAt
+
+  stages       StageRun[]
+  assets       Asset[]
+  titles       TitleCandidate[]
+  clipRequests ClipRequest[]
+
+  @@index([status])
+  @@index([niche])
+}
+
+model StageRun {
+  id        Int       @id @default(autoincrement())
+  runId     String
+  name      String
+  status    String
+  attempts  Int       @default(0)
+  error     String?
+  startedAt DateTime?
+  endedAt   DateTime?
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, name])
+}
+
+model Topic {
+  key       String   @id
+  title     String
+  usedAt    DateTime @default(now())
+}
+
+model Asset {
+  id     Int    @id @default(autoincrement())
+  runId  String
+  kind   String
+  path   String
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, kind])
+}
+
+model TitleCandidate {
+  id       Int     @id @default(autoincrement())
+  runId    String
+  title    String
+  total    Float
+  chosen   Boolean @default(false)
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+model ClipRequest {
+  id                 Int      @id @default(autoincrement())
+  runId              String
+  sceneId            String
+  prompt             String
+  referenceImagePath String?
+  targetSeconds      Float
+  fulfilledPath      String?
+  skipped            Boolean  @default(false)
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sceneId])
+}
+
+model Job {
+  id          Int       @id @default(autoincrement())
+  type        String
+  payload     String
+  state       String    @default("queued")
+  attempts    Int       @default(0)
+  error       String?
+  createdAt   DateTime
+  claimedAt   DateTime?
+  finishedAt  DateTime?
+
+  @@index([state])
+}

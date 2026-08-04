@@ -1,0 +1,11 @@
+{
+  "id": "politics",
+  "label": "Politics and Policy",
+  "promptGuidance": "Explainer only: describe how a system, institution, or historical policy works and why it was designed that way. Never advocate a position, endorse or criticise a living politician or party, or discuss an active election. Describe disagreements by explaining what each side wants and why. If the topic cannot be covered without taking sides, abandon it.",
+  "voice": "male",
+  "styleSuffix": "archival documentary style, muted institutional tones, architectural symmetry, soft overcast light",
+  "music": "ambient-neutral",
+  "trendSources": ["wikipedia-top"],
+  "seoRules": "Frame as a mechanism question such as 'how X works'. No partisan or inflammatory language.",
+  "monetizationRisk": "high"
+}
