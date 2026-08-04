@@ -88,7 +88,8 @@ export type StageOutcome =
 **Modified in `packages/core`**
 - `src/domain.ts` — add `'exclusive'` to `ModelRequirement`; retarget `STAGE_REQUIREMENTS` entries that need it
 - `src/stage.ts` — add `'topic'` to `ArtifactName`
-- `src/schemas/content.ts` — add `TopicSchema` (the selected topic artifact) and `TopicCandidateScoreSchema`
+- `src/schemas/content.ts` — add `TopicSchema` (the selected topic artifact), `TopicScoresSchema` and `ScoredCandidateSchema`
+- `src/presets.ts` — raise the shorts duration window so the eight-section arc fits (see Task 1)
 - `src/schemas/config.ts` — add `llm` settings block to `AppConfigSchema`; add `backoffMs` to `RetryConfigSchema`
 
 **Modified in `packages/pipeline`**
@@ -111,7 +112,7 @@ export type StageOutcome =
 
 **New tooling**
 - `scripts/setup-ollama.sh` — reproducible in-repo install
-- `test/integration/llm.integration.test.ts` — opt-in, real model
+- `test/integration/llm-block.integration.test.ts` — opt-in, real model
 
 ---
 
@@ -356,11 +357,65 @@ Note `this.current` is typed `'llm' | 'sd' | null`, so assigning `requirement` i
 Run: `pnpm test`
 Expected: PASS. If the stage-runner tests fail, it is because one of them asserts the old eviction ordering — read the failure and update only the assertion that encodes the superseded behaviour, keeping its intent.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Fix the shorts preset, which cannot currently hold the story arc**
+
+A review of this plan found a genuine contradiction inherited from the Plan 1 spec: the
+eight-section arc **cannot fit a 45–60 second Short**. Eight sections at one beat each, with
+`BeatSchema`'s 15-second minimum, is 120 seconds minimum. Every shorts run would fail on
+arithmetic before quality ever entered into it.
+
+The owner's ruling: raise the shorts window rather than make the schema format-dependent.
+YouTube Shorts permits up to 3 minutes, so this stays within the platform's limits and keeps
+both the arc and the beat-pacing rule intact everywhere.
+
+In `packages/core/src/presets.ts`, replace the `shorts` preset with:
+
+```ts
+  shorts: {
+    format: 'shorts',
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    // 120s is the floor imposed by the eight-section arc: 8 sections x 1 beat x 15s minimum.
+    // Anything shorter cannot carry the story structure the schema enforces.
+    minDurationSec: 120,
+    maxDurationSec: 180,
+    minScenes: 12,
+    maxScenes: 30,
+    imageBudget: 22,
+    clipBudget: 2,
+  },
+```
+
+`imageBudget` moves from 10 to 22 to keep the one-image-per-8-to-10-seconds rule that
+`presets.test.ts` asserts: 180 / 22 ≈ 8.2 seconds per image. Scene counts widen accordingly.
+
+- [ ] **Step 10: Update the preset test**
+
+In `packages/core/src/presets.test.ts`, update the shorts expectations to the values above.
+Keep the existing "image budget consistent with one image per 8-10 seconds" test **unchanged** —
+it must still pass, and it is what proves the new numbers are coherent rather than arbitrary.
+Add one assertion making the reason explicit:
+
+```ts
+  it('gives shorts enough room for the eight-section arc at the minimum beat length', () => {
+    // 8 sections x 1 beat x 15s (BeatSchema's floor) = 120s. A shorter window would make
+    // every shorts run impossible to satisfy.
+    expect(FORMAT_PRESETS.shorts.minDurationSec).toBeGreaterThanOrEqual(120)
+  })
+```
+
+- [ ] **Step 11: Run the full suite**
+
+Run: `pnpm test`
+Expected: PASS. If `config.test.ts` or `niche-files.test.ts` fail, a duration value in
+`config/app.json` now sits outside the shorts window — report it rather than widening the test.
+
+- [ ] **Step 12: Commit**
 
 ```bash
 git add packages/core/src packages/pipeline/src
-git commit -m "feat(core): add exclusive model requirement so the image model is evicted before rendering"
+git commit -m "feat(core): add exclusive model requirement and give shorts room for the story arc"
 ```
 
 ---
@@ -720,6 +775,15 @@ Then in `runWithRetry`, after a failed attempt and only when another attempt rem
 ```
 
 Place this at the end of the `catch` block, after `failStage`, so a stage that succeeds never waits. Import `STAGE_RETRY_KIND` as a value.
+
+**Two things this must not break.** First, the existing shared `runner()` helper in
+`stage-runner.test.ts` injects no `sleep`, so several existing tests that exercise retries would
+begin genuinely sleeping — about 9.5 seconds in total, quietly violating the
+suite-runs-in-seconds constraint. Add `sleep: async () => {}` to that helper so every existing
+test stays instant. Second, note the backoff sits inside the retry loop while the model lease is
+still held, so a waiting stage holds the broker's FIFO. That is acceptable at concurrency 1 and
+with the small delays configured here, but record it in your report as a known property rather
+than discovering it later.
 
 - [ ] **Step 5: Run the full suite**
 
@@ -1344,7 +1408,7 @@ Add `TREND_SOURCES` to the imports at the top of `content.ts`:
 import { TREND_SOURCES } from './config'
 ```
 
-**Watch for a circular import:** `config.ts` imports `SECTION_KINDS` and `VIDEO_FORMATS` from `../domain`, and `content.ts` imports from `../domain` too — importing `TREND_SOURCES` from `./config` into `content.ts` is a new edge. If it creates a cycle at runtime, move `TREND_SOURCES` and `TrendSource` into `domain.ts` (where the other shared vocabulary lives), re-export them from `config.ts` for compatibility, and import from `../domain` in both files. Report which route you took.
+This import is safe: `content.ts → config.ts → domain.ts` is a chain, not a cycle — `config.ts` does not import `content.ts`. No workaround is needed.
 
 - [ ] **Step 4: Widen `ArtifactName`**
 
@@ -2439,10 +2503,11 @@ describe('createResearcherStage', () => {
 
     await expect(createResearcherStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
 
-    expect(asked).toEqual(['Venus', 'Radar astronomy'])
+    // The stage always prepends the topic title, so three entities are looked up, not two.
+    expect(asked).toEqual(['Why Venus rotates backwards', 'Venus', 'Radar astronomy'])
     const research = await h.ctx.artifacts.read('research', ResearchSchema)
     expect(research.topicTitle).toBe('Why Venus rotates backwards')
-    expect(research.facts).toHaveLength(2)
+    expect(research.facts).toHaveLength(3)
   })
 
   it('always researches the topic title even if the model omits it', async () => {
@@ -2780,6 +2845,13 @@ Create `packages/pipeline/src/stages/prompts/script-writer.ts`:
 import { SECTION_KINDS } from '@yt/core'
 
 /**
+ * Words per beat are derived from a single beat's length, not from the whole video divided by
+ * beat count — those differ, and the latter produced an instruction to write 16 words for a
+ * beat that must last at least 15 seconds (~37 words), which is unsatisfiable.
+ */
+const SECONDS_PER_BEAT_HINT = 22
+
+/**
  * The beat budget is stated explicitly because a local model asked for "about nine minutes"
  * produces wildly variable length. Telling it the section count, the per-section beat count
  * and the seconds per beat turns the length target into arithmetic it can follow.
@@ -2807,7 +2879,8 @@ Each section contains beats. A beat is one spoken unit that introduces something
 LENGTH — the whole video runs about ${input.targetSeconds} seconds:
 - ${input.beatsPerSection} beats per section, so about ${totalBeats} beats in total
 - every beat's targetSeconds MUST be between 15 and 30 inclusive
-- write roughly ${Math.round((input.targetSeconds / totalBeats) * 2.5)} words of narration per beat, since speech runs about 150 words per minute
+- write roughly ${Math.round(SECONDS_PER_BEAT_HINT * 2.5)} words of narration per beat, since speech runs about 150 words per minute
+- use only these values for targetSeconds: 15, 20, 25 or 30
 
 GROUNDING — you may only state things supported by these facts. Do not add dates, numbers,
 names or causes that are not here. If a fact you want is missing, write around it.
@@ -2856,10 +2929,13 @@ export const createScriptWriterStage = (): Stage => ({
     const topic = await ctx.artifacts.read('topic', TopicSchema)
     const research = await ctx.artifacts.read('research', ResearchSchema)
 
-    // Aim at the middle of the preset's duration window rather than an edge, so a beat or two
-    // of drift still lands inside it.
-    const targetSeconds = Math.round(
-      (ctx.config.preset.minDurationSec + ctx.config.preset.maxDurationSec) / 2,
+    // Spec section 4 stage 3 derives length from the configured duration, not from the preset
+    // midpoint — `duration` is what the operator actually asked for. Clamp it into the
+    // preset's window so a mis-set config cannot produce an unrenderable length.
+    const requested = ctx.config.duration * 60
+    const targetSeconds = Math.min(
+      ctx.config.preset.maxDurationSec,
+      Math.max(ctx.config.preset.minDurationSec, Math.round(requested)),
     )
     const beatsPerSection = Math.max(
       1,
@@ -2879,7 +2955,20 @@ export const createScriptWriterStage = (): Stage => ({
         beatsPerSection,
       }),
       'Script',
-      (raw) => ScriptSchema.parse(raw),
+      // Clamp targetSeconds into the schema's window BEFORE parsing. Two dozen beats come back
+      // in one generation, so a single out-of-range number would otherwise discard ~1500 words
+      // of usable narration and re-ask. Pacing is a hint; the writing is the expensive part.
+      // This mirrors what ScenePlanner and SEO do with their budgets.
+      (raw) => {
+        const draft = raw as { sections?: { beats?: { targetSeconds?: unknown }[] }[] }
+        for (const section of draft.sections ?? []) {
+          for (const beat of section.beats ?? []) {
+            const n = typeof beat.targetSeconds === 'number' ? beat.targetSeconds : 20
+            beat.targetSeconds = Math.min(30, Math.max(15, Math.round(n)))
+          }
+        }
+        return ScriptSchema.parse(draft)
+      },
     )
 
     await ctx.artifacts.write('script', ScriptSchema, script)
@@ -3228,25 +3317,28 @@ describe('createScenePlannerStage', () => {
   })
 
   it('rewrites images beyond the budget as reuse of an earlier image', async () => {
-    // The shorts preset allows 10 images. Two beats per section gives 16 scenes, so six of
-    // them must be downgraded to reuse.
-    await h.ctx.artifacts.write('script', ScriptSchema, scriptWith(2))
-    const allBeats = scriptWith(2).sections.flatMap((s) => s.beats.map((b) => b.id))
-    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+    // Use the `long` preset here: its imageBudget is 70 with maxScenes 90, so we can exceed
+    // the image budget without also exceeding the scene cap (which would halt the stage
+    // before it ever reached the budget logic).
+    const long = await makeStageContext({ videoType: 'long', runId: 'run-budget' })
+    await long.ctx.artifacts.write('script', ScriptSchema, scriptWith(10)) // 80 beats
+    const allBeats = scriptWith(10).sections.flatMap((s) => s.beats.map((b) => b.id))
+    long.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
       parse({ scenes: allBeats.map((b) => sceneFor(b, { kind: 'sd-image', prompt: `Image ${b}` })) })) as RunContext['providers']['llm']['json']
 
-    await createScenePlannerStage().run(h.ctx)
+    await createScenePlannerStage().run(long.ctx)
 
-    const plan = await h.ctx.artifacts.read('scenes', ScenePlanSchema)
+    const plan = await long.ctx.artifacts.read('scenes', ScenePlanSchema)
     const images = plan.scenes.filter((s) => s.visual.kind === 'sd-image')
     const reuses = plan.scenes.filter((s) => s.visual.kind === 'reuse')
-    expect(images.length).toBeLessThanOrEqual(h.ctx.config.preset.imageBudget)
-    expect(reuses.length).toBeGreaterThan(0)
+    expect(images.length).toBe(long.ctx.config.preset.imageBudget) // exactly the budget, 70
+    expect(reuses.length).toBe(80 - long.ctx.config.preset.imageBudget) // the remaining 10
     // Every reuse must point at a scene that really exists and really holds an image.
     const imageIds = new Set(images.map((s) => s.id))
     for (const r of reuses) {
       expect(imageIds.has((r.visual as { sceneId: string }).sceneId)).toBe(true)
     }
+    await long.cleanup()
   })
 
   it('gives every veo-clip a fallback prompt even when the model omitted one', async () => {
@@ -3254,7 +3346,10 @@ describe('createScenePlannerStage', () => {
       parse({
         scenes: SECTION_KINDS.map((k, i) =>
           i === 0
-            ? sceneFor(`${k}-0`, { kind: 'veo-clip', prompt: 'A dust storm rolling in', referenceSceneId: 'scene-hook-0', fallbackPrompt: '' })
+            // A single space: passes SceneVisualSchema's min(1) so the plan parses, but fails
+            // the stage's trim check, which is what exercises the synthesis branch. An empty
+            // string would be rejected by the schema before the stage ever saw it.
+            ? sceneFor(`${k}-0`, { kind: 'veo-clip', prompt: 'A dust storm rolling in', referenceSceneId: 'scene-hook-0', fallbackPrompt: ' ' })
             : sceneFor(`${k}-0`, { kind: 'sd-image', prompt: `Image ${k}` }),
         ),
       })) as RunContext['providers']['llm']['json']
@@ -3595,14 +3690,15 @@ describe('createSeoStage', () => {
     expect(seo.description.length).toBeLessThanOrEqual(5000)
   })
 
-  it('halts when fewer than twenty usable titles can be assembled', async () => {
+  it('throws rather than halting when fewer than twenty usable titles survive', async () => {
+    // Halting here would throw away a finished, fact-checked script at the last stage over the
+    // one thing that is cheap to re-ask for. Throwing lets the retry budget apply instead.
     h.providers.llm.json = (async () => ({
       titles: titles(3), description: 'A description.', tags: ['a'], hashtags: ['#a'],
     })) as RunContext['providers']['llm']['json']
 
-    const outcome = await createSeoStage().run(h.ctx)
-
-    expect(outcome).toMatchObject({ status: 'halted' })
+    await expect(createSeoStage().run(h.ctx)).rejects.toThrow(/need 20/)
+    await expect(h.ctx.artifacts.exists('seo')).resolves.toBe(false)
   })
 })
 ```
@@ -3733,10 +3829,13 @@ export const createSeoStage = (): Stage => ({
       .slice(0, REQUIRED_TITLES)
 
     if (usable.length < REQUIRED_TITLES) {
-      return {
-        status: 'halted',
-        reason: `only ${usable.length} of ${draft.titles.length} titles were usable, need ${REQUIRED_TITLES}`,
-      }
+      // THROW, do not halt. This is the last of six stages: halting would discard a finished,
+      // fact-checked script because the model was stingy with titles — the one thing here that
+      // is cheap to re-ask for. Throwing lets the stage's own retry budget apply.
+      throw new Error(
+        `only ${usable.length} of ${draft.titles.length} titles were usable (need ${REQUIRED_TITLES}); ` +
+          `titles over ${MAX_TITLE_CHARS} characters were discarded`,
+      )
     }
 
     // Trust the scores over the stated choice, exactly as TopicScout does.
@@ -3812,11 +3911,59 @@ export const buildLlmStages = (): Stage[] => [
 
 Append `export * from './build'` to `stages/index.ts`.
 
-- [ ] **Step 2: Default the CLI to the real stages**
+- [ ] **Step 2: Wire the CLI to real providers AND real stages together**
 
-In `packages/pipeline/src/cli.ts`, change the stage default from `buildNoopStages()` to `buildLlmStages()` and import it. Keep `buildNoopStages` exported — the e2e fake tests still use it explicitly.
+This is the step a review flagged as the most dangerous thing in the plan, so read it carefully.
+`main()` currently hardcodes `useFakes: true`. If you only flip the stage default to
+`buildLlmStages()`, `pnpm pipeline:run` would execute **real stages against the fake LLM** — the
+fake's `json` returns `{ok:true}`, topic selection fails schema validation, and the run dies
+after three attempts. That is exactly the fake/real mixture Plan 1's guard exists to prevent,
+and it would look like a broken stage rather than a wiring mistake.
 
-Then in `test/e2e/fake-pipeline.test.ts`, every existing test that expects fourteen stages must now pass `stages: buildNoopStages()` explicitly, since the default changed. Import `buildNoopStages` there. **Note this now collides with Task 14's guard from Plan 1** (`useFakes` may not be combined with explicit `stages`) — so those tests must switch from `useFakes: true` to passing `providers: createFakeProviders()` explicitly alongside `stages`. Make that change and confirm the guard's own two tests still pass.
+So the stages and the providers must change together. In `packages/pipeline/src/cli.ts`:
+
+Leave `runPipeline`'s `stages` default as `buildNoopStages()` — a caller that asks for fakes
+should get the placeholder pipeline. Change only `main()`'s `run` verb to construct the real
+thing:
+
+```ts
+    const host = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434'
+    const model = process.env.LLM_MODEL ?? 'qwen3:8b'
+    const llm = new OllamaLlmProvider({
+      client: createHttpOllamaClient({ host }),
+      model,
+      log: (message) => console.log(`[llm] ${message}`),
+    })
+
+    const result = await runPipeline({
+      runId,
+      repos: createRepositories(prisma),
+      configDir: path.join(repoRoot, 'config'),
+      storageRoot: process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage'),
+      // Real stages need real providers. Everything the LLM block does not touch stays fake
+      // until the plans that implement it land.
+      providers: createFakeProviders(),
+      stages: buildLlmStages(),
+      llm,
+      trend: new HttpTrendProvider({ log: (m) => console.log(`[trend] ${m}`) }),
+      research: new WikipediaResearchProvider({ log: (m) => console.log(`[research] ${m}`) }),
+      onLog: (entry) => console.log(`[${entry.level}] ${entry.message}`),
+    })
+```
+
+Import `buildLlmStages` from `./stages`, and `createFakeProviders`, `createHttpOllamaClient`,
+`OllamaLlmProvider`, `HttpTrendProvider`, `WikipediaResearchProvider` from `@yt/providers`.
+Remove the `useFakes: true` argument — it must not be combined with explicit providers.
+
+**Add a startup check.** The provider does not start a server, so a run with nothing listening
+would fail six stages in a row with a connection error. Before the pipeline starts, call
+`llm.complete('Reply with OK')` inside a try/catch; on failure print that the model server is
+unreachable and that `pnpm ollama:serve` starts one, then exit 1 without touching the database.
+A clear message here saves the operator from debugging a stage.
+
+Then in `test/e2e/fake-pipeline.test.ts`: those tests still exercise the fourteen placeholder
+stages, and since `runPipeline`'s default is unchanged they keep working as written. Verify
+that; if any test broke, it is because you changed the default — put it back.
 
 - [ ] **Step 3: Add provider overrides to `runPipeline`**
 
@@ -3832,12 +3979,18 @@ Add to `RunPipelineOptions`:
 and after the bundle is built:
 
 ```ts
+Rename the existing local so the override does not spread itself. The current line reading
+`const providers = opts.providers ?? createFakeProviders()` becomes:
+
+```ts
+  const suppliedProviders = opts.providers ?? createFakeProviders()
   const providers: ProviderBundle = {
-    ...baseProviders,
+    ...suppliedProviders,
     ...(opts.llm ? { llm: opts.llm } : {}),
     ...(opts.trend ? { trend: opts.trend } : {}),
     ...(opts.research ? { research: opts.research } : {}),
   }
+```
 ```
 
 Because these are partial overrides on top of a fake bundle, the `useFakes` guard must still reject a *fully* unspecified real run. Keep the guard, and extend its message to mention that individual provider overrides are allowed alongside `useFakes`.
@@ -3886,7 +4039,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ScenePlanSchema, ScriptSchema, SECTION_KINDS, SeoSchema, TopicSchema } from '@yt/core'
-import { createHttpOllamaClient, OllamaLlmProvider, WikipediaResearchProvider, HttpTrendProvider } from '@yt/providers'
+import { createFakeProviders, createHttpOllamaClient, OllamaLlmProvider, WikipediaResearchProvider, HttpTrendProvider } from '@yt/providers'
 import type { Repositories } from '@yt/db'
 import { buildLlmStages, FileArtifactStore, runPaths, runPipeline } from '@yt/pipeline'
 import { createTestDb } from '../setup/db'
@@ -3920,8 +4073,14 @@ describe('the LLM block against a real local model', () => {
       repos,
       configDir,
       storageRoot,
-      request: { niche: 'space', videoType: 'shorts' },
-      useFakes: true,
+      // `long` deliberately: the eight-section arc needs at least 120s, and running the
+      // headline deliverable at the format with the most room gives the clearest read on
+      // whether the prompts work.
+      request: { niche: 'space', videoType: 'long' },
+      // NOT useFakes: Plan 1's guard rejects useFakes combined with explicit stages or
+      // providers, precisely so a real run can never silently fall back to fakes. Supply the
+      // fake bundle explicitly and override the three providers this block actually uses.
+      providers: createFakeProviders(),
       stages: buildLlmStages(),
       llm,
       trend: new HttpTrendProvider({ log: (m) => console.log(`  trend: ${m}`) }),
@@ -3997,6 +4156,25 @@ git commit -m "feat(pipeline): wire the six LLM stages and add an opt-in real-mo
 - [ ] The fact checker halts a run whose script is not grounded in its research
 - [ ] No stage imports a concrete provider; every stage's `requires` matches the canonical map
 - [ ] The image model is evicted before the small-model block (Task 1's broker test proves it)
+
+## Deliberate deferrals in this plan
+
+Recorded rather than silently skipped, so a later review does not rediscover them:
+
+- **Spec §4 stage 4 is only partly implemented.** The FactChecker scores claims against the
+  research file and halts an ungrounded script, but it does NOT do the spec's "Wikipedia lookup
+  for anything unsourced" or rewrite contradicted claims. Both need a second model pass over a
+  script that is already written, which is a meaningful amount of work for a marginal gain while
+  everything upstream is still being proven. Fold into Plan 3, where the quality gate lives.
+- **Backoff is held under the model lease.** A waiting stage keeps its broker lease, so the FIFO
+  is blocked for the duration. Harmless at concurrency 1 with sub-second delays; revisit if
+  either changes.
+- **The `acquire`-rejection retry path skips backoff**, because it `continue`s before reaching
+  the wait. A failed eviction retries immediately. Acceptable — an eviction failure is not
+  rate-limiting — but worth knowing.
+- Plan 1's remaining deferrals (the fake caption provider returning `[]` for an unknown path,
+  the missing `Research`/`FactCheck` schema tests, artifact write atomicity, and the stranded
+  `running` job reaper) stay open and are still listed in `PLAN-2-HANDOFF.md`.
 
 ## Deferred from Plan 1, now closed
 
