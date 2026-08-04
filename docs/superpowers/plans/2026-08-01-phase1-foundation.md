@@ -4845,7 +4845,7 @@ Expected: PASS — 5 new end-to-end tests; whole suite green.
 
 - [ ] **Step 6: Verify the CLI works for real**
 
-Run: `pnpm doctor`
+Run: `pnpm check` (an alias for the `doctor` script — `pnpm doctor` itself is intercepted by pnpm's own built-in `doctor` subcommand and never reaches ours, so `pnpm check` is the invocation that actually works; `pnpm run doctor` also still works)
 Expected: a table of checks. `node`, `python3`, `ffmpeg`, and `whisper-cli` PASS; `ollama binary` FAILs and the model directories WARN, because Plans 2–3 install them. Exit code 1 is correct at this point.
 
 Run: `pnpm --filter @yt/db db:push && pnpm pipeline:run smoke-1`
@@ -4872,7 +4872,7 @@ git commit -m "feat(pipeline): add composition root, CLI and end-to-end fake pip
 
 - [ ] `pnpm test` passes in seconds with zero models loaded (~127 tests)
 - [ ] `pnpm typecheck` exits 0
-- [ ] `pnpm doctor` prints a readable table and exits non-zero only for genuinely missing required dependencies
+- [ ] `pnpm check` prints a readable table and exits non-zero only for genuinely missing required dependencies
 - [ ] `pnpm pipeline:run <id>` executes all fourteen stages and reports `awaiting_review`
 - [ ] Re-running the same id skips completed stages, proving resume
 - [ ] The ModelBroker test proves exactly two evictions across the stage sequence

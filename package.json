@@ -8,6 +8,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "doctor": "tsx packages/pipeline/src/cli.ts doctor",
+    "check": "tsx packages/pipeline/src/cli.ts doctor",
     "pipeline:run": "tsx packages/pipeline/src/cli.ts run"
   },
   "devDependencies": {
