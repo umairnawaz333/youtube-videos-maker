@@ -24,11 +24,19 @@ export class JobWorker {
 
     try {
       await handler(job)
-      await repos.jobs.complete(job.id, clock.now())
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await repos.jobs.fail(job.id, message, this.maxAttempts, clock.now())
+      return true
     }
+
+    // The handler already succeeded by this point, so the work is genuinely
+    // done. A failure here is bookkeeping corruption in recording that
+    // success, not a job failure, and must never call fail()/requeue: doing
+    // so would silently re-run an already-successful job (a whole pipeline
+    // run, e.g. regenerating a video that already completed). Let it
+    // propagate so the operator sees the real, unexpected problem.
+    await repos.jobs.complete(job.id, clock.now())
     return true
   }
 

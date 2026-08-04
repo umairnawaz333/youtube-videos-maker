@@ -17,24 +17,50 @@ export class JobRepository {
     return row.id
   }
 
-  /** Concurrency is 1, so a simple find-then-update claim is sufficient here. */
+  /**
+   * Concurrency is 1, so a simple find-then-update claim is sufficient here.
+   *
+   * A row whose payload is not valid JSON is a poison pill: parsing it will
+   * fail the exact same way no matter how many times it is retried, so
+   * requeuing it would only ever reproduce the failure and block every
+   * queued job behind it. It is therefore quarantined here (marked
+   * permanently failed) and the loop moves on to the next queued row,
+   * skipping as many consecutive bad rows as necessary. The loop still
+   * terminates: each quarantined row leaves the `queued` state, so it can
+   * never be found again, and `findFirst` eventually returns null once
+   * nothing queued remains.
+   */
   async claimNext(at: Date): Promise<ClaimedJob | null> {
-    const row = await this.prisma.job.findFirst({
-      where: { state: 'queued' },
-      orderBy: { id: 'asc' },
-    })
-    if (!row) return null
+    for (;;) {
+      const row = await this.prisma.job.findFirst({
+        where: { state: 'queued' },
+        orderBy: { id: 'asc' },
+      })
+      if (!row) return null
 
-    await this.prisma.job.update({
-      where: { id: row.id },
-      data: { state: 'running', claimedAt: at },
-    })
+      let payload: Record<string, unknown>
+      try {
+        payload = JSON.parse(row.payload) as Record<string, unknown>
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await this.prisma.job.update({
+          where: { id: row.id },
+          data: { state: 'failed', finishedAt: at, error: `payload is not valid JSON: ${message}` },
+        })
+        continue
+      }
 
-    return {
-      id: row.id,
-      type: row.type,
-      payload: JSON.parse(row.payload) as Record<string, unknown>,
-      attempts: row.attempts,
+      await this.prisma.job.update({
+        where: { id: row.id },
+        data: { state: 'running', claimedAt: at },
+      })
+
+      return {
+        id: row.id,
+        type: row.type,
+        payload,
+        attempts: row.attempts,
+      }
     }
   }
 
