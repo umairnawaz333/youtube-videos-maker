@@ -55,6 +55,18 @@ export const runPipeline = async (opts: RunPipelineOptions): Promise<RunResult> 
     )
   }
 
+  // useFakes and explicit providers/stages are mutually exclusive. Mixing them would let
+  // real stages run against fake providers — a video assembled from a one-pixel PNG and a
+  // sine-wave WAV, reported as a genuine finished run with nothing to flag it as fake.
+  if (opts.useFakes && (opts.providers || opts.stages)) {
+    throw new Error(
+      'runPipeline: `useFakes` cannot be combined with explicit `providers` or `stages` — ' +
+        'doing so would let real stages run against fake providers and silently report a ' +
+        'fake video as a genuine finished run. Pass `useFakes: true` alone for an all-fake ' +
+        'smoke run, or pass your own `providers`/`stages` without `useFakes`.',
+    )
+  }
+
   const providers = opts.providers ?? createFakeProviders()
   const stages = opts.stages ?? buildNoopStages()
 
@@ -100,7 +112,10 @@ const main = async () => {
       console.log(`${mark.padEnd(4)}  ${r.name.padEnd(18)}  ${r.detail}`)
     }
     console.log(report.ok ? '\nAll required checks passed.' : '\nRequired checks failed.')
-    process.exit(report.ok ? 0 : 1)
+    // Set exitCode and return rather than process.exit(): exit() can cut off stdout that
+    // hasn't finished flushing yet (e.g. when piped), truncating output for the caller.
+    process.exitCode = report.ok ? 0 : 1
+    return
   }
 
   if (verb === 'run') {
@@ -108,25 +123,40 @@ const main = async () => {
     const prisma = createPrismaClient(databaseUrl)
     const runId = process.argv[3] ?? `run-${process.pid}`
 
-    const result = await runPipeline({
-      runId,
-      repos: createRepositories(prisma),
-      configDir: path.join(repoRoot, 'config'),
-      storageRoot: process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage'),
-      useFakes: true,
-      onLog: (entry) => console.log(`[${entry.level}] ${entry.message}`),
-    })
+    // The disconnect must happen whether runPipeline resolves or rejects — a database
+    // failure at run start (before StageRunner's own try/finally is established) is a
+    // real, reachable throw, not a theoretical one, and it must not leave a dangling
+    // connection behind.
+    try {
+      const result = await runPipeline({
+        runId,
+        repos: createRepositories(prisma),
+        configDir: path.join(repoRoot, 'config'),
+        storageRoot: process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage'),
+        useFakes: true,
+        onLog: (entry) => console.log(`[${entry.level}] ${entry.message}`),
+      })
 
-    console.log(`\nrun ${runId} finished with status: ${result.status}`)
-    if (result.reason) console.log(`reason: ${result.reason}`)
-    await prisma.$disconnect()
-    process.exit(result.status === 'failed' ? 1 : 0)
+      console.log(`\nrun ${runId} finished with status: ${result.status}`)
+      if (result.reason) console.log(`reason: ${result.reason}`)
+      process.exitCode = result.status === 'failed' ? 1 : 0
+    } finally {
+      await prisma.$disconnect()
+    }
+    return
   }
 
   console.error('usage: pipeline <run|doctor> [runId]')
-  process.exit(2)
+  process.exitCode = 2
 }
 
 if (require.main === module) {
-  void main()
+  // Without this catch, any error thrown by main() (a config load failure, a database
+  // error at run start, an unexpected rejection) becomes an unhandled promise rejection
+  // instead of a controlled, non-zero exit — and the message the user sees is a bare
+  // stack dump instead of something legible.
+  main().catch((error) => {
+    console.error(`pipeline CLI failed: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  })
 }
