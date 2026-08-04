@@ -7,12 +7,24 @@ const cmd = (present: string[]): CommandRunner => ({
   },
 })
 
-const probe = (existing: string[], free = 100 * 1024 ** 3): FsProbe => ({
+const probe = (
+  existing: string[],
+  free = 100 * 1024 ** 3,
+  options: { executable?: string[]; nonEmpty?: string[] } = {},
+): FsProbe => ({
   async exists(p) {
     return existing.some((e) => p.endsWith(e))
   },
   async freeBytes() {
     return free
+  },
+  async isExecutable(p) {
+    const executable = options.executable ?? existing
+    return executable.some((e) => p.endsWith(e))
+  },
+  async hasEntries(p) {
+    const nonEmpty = options.nonEmpty ?? existing
+    return nonEmpty.some((e) => p.endsWith(e))
   },
 })
 
@@ -98,6 +110,48 @@ describe('doctor', () => {
       { name: 'optional-bad', required: false, run: async () => ({ ok: false, detail: 'absent' }) },
     ])
 
+    expect(report.ok).toBe(true)
+  })
+
+  it('fails when the ollama binary exists but is not executable', async () => {
+    const checks = buildDefaultChecks({
+      cmd: cmd(['ffmpeg', 'whisper-cli', 'node', 'python3']),
+      fs: probe(['bin/ollama'], undefined, { executable: [] }),
+      repoRoot: '/repo',
+    })
+    const report = await runDoctor(checks)
+
+    const ollama = report.results.find((r) => r.name === 'ollama binary')
+    expect(ollama).toMatchObject({ ok: false, required: true })
+    expect(ollama?.detail).toContain('chmod +x')
+    // The whole point of this fix: a present-but-broken required check must fail the report.
+    expect(report.ok).toBe(false)
+  })
+
+  it('passes the ollama binary check when the binary exists and is executable', async () => {
+    const checks = buildDefaultChecks({
+      cmd: cmd(['ffmpeg', 'whisper-cli', 'node', 'python3']),
+      fs: probe(['bin/ollama', 'models/ollama', 'models/hf', 'models/tts', 'models/whisper']),
+      repoRoot: '/repo',
+    })
+    const report = await runDoctor(checks)
+
+    expect(report.results.find((r) => r.name === 'ollama binary')).toMatchObject({ ok: true })
+    expect(report.ok).toBe(true)
+  })
+
+  it('warns without failing the report when a weights directory exists but is empty', async () => {
+    const checks = buildDefaultChecks({
+      cmd: cmd(['ffmpeg', 'whisper-cli', 'node', 'python3']),
+      fs: probe(['bin/ollama', 'models/hf'], undefined, { nonEmpty: ['bin/ollama'] }),
+      repoRoot: '/repo',
+    })
+    const report = await runDoctor(checks)
+
+    const weights = report.results.find((r) => r.name === 'SDXL weights')
+    expect(weights).toMatchObject({ ok: false, required: false })
+    expect(weights?.detail).toMatch(/empty/i)
+    // Optional check: must warn, but must not drag the overall report down.
     expect(report.ok).toBe(true)
   })
 })
