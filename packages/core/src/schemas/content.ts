@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CAMERA_MOVES, SECTION_KINDS } from '../domain'
+import { TREND_SOURCES } from './config'
 
 export const MAX_TITLE_CHARS = 100
 export const MAX_DESCRIPTION_CHARS = 5000
@@ -138,3 +139,32 @@ export const SeoSchema = z
     }
   })
 export type Seo = z.infer<typeof SeoSchema>
+
+export const TopicScoresSchema = z.object({
+  curiosity: z.number().min(0).max(10),
+  explainability: z.number().min(0).max(10),
+  visualPotential: z.number().min(0).max(10),
+  evergreen: z.number().min(0).max(10),
+})
+
+/** A candidate after the model has scored it, before one is chosen. */
+export const ScoredCandidateSchema = z.object({
+  key: z.string().min(1),
+  title: z.string().min(1),
+  scores: TopicScoresSchema,
+  total: z.number().min(0).max(40),
+})
+export type ScoredCandidate = z.infer<typeof ScoredCandidateSchema>
+
+/** The chosen topic for a run. `key` is the permanent dedupe identity. */
+export const TopicSchema = z.object({
+  key: z.string().min(1),
+  title: z.string().min(1),
+  source: z.enum(TREND_SOURCES),
+  url: z.string().url().nullable(),
+  /** The specific angle the script should take, so the writer is not left to invent one. */
+  angle: z.string().min(1),
+  scores: TopicScoresSchema,
+  total: z.number().min(0).max(40),
+})
+export type Topic = z.infer<typeof TopicSchema>

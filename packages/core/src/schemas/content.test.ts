@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS } from '@yt/core'
+import { ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS, TopicSchema } from '@yt/core'
 
 const beat = (seconds: number) => ({ id: 'b1', text: 'Narration line.', targetSeconds: seconds })
 
@@ -142,5 +142,39 @@ describe('SeoSchema', () => {
 
   it('rejects a description over five thousand characters', () => {
     expect(SeoSchema.safeParse(seo({ description: 'x'.repeat(5001) })).success).toBe(false)
+  })
+})
+
+describe('TopicSchema', () => {
+  const topic = (overrides: Record<string, unknown> = {}) => ({
+    key: 'venus-retrograde-rotation',
+    title: 'Why Venus rotates backwards',
+    source: 'wikipedia-top',
+    url: 'https://en.wikipedia.org/wiki/Venus',
+    angle: 'Follow the single measurement that overturned the assumption.',
+    scores: { curiosity: 8, explainability: 7, visualPotential: 6, evergreen: 9 },
+    total: 30,
+    ...overrides,
+  })
+
+  it('accepts a well-formed selected topic', () => {
+    expect(TopicSchema.safeParse(topic()).success).toBe(true)
+  })
+
+  it('allows a null url, since not every trend source has one', () => {
+    expect(TopicSchema.safeParse(topic({ url: null })).success).toBe(true)
+  })
+
+  it('rejects a source that is not a known trend source', () => {
+    expect(TopicSchema.safeParse(topic({ source: 'tiktok' })).success).toBe(false)
+  })
+
+  it('rejects a score outside 0-10', () => {
+    const bad = topic({ scores: { curiosity: 11, explainability: 7, visualPotential: 6, evergreen: 9 } })
+    expect(TopicSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects an empty key, because the key is the permanent dedupe identity', () => {
+    expect(TopicSchema.safeParse(topic({ key: '' })).success).toBe(false)
   })
 })
