@@ -103,6 +103,24 @@ describe('OllamaLlmProvider.complete', () => {
 
     expect(client.calls[0]).toMatchObject({ temperature: 0.2, maxTokens: 64 })
   })
+
+  it('passes numCtx through, the same way temperature and maxTokens are passed', async () => {
+    const client = clientReturning('x')
+    const provider = new OllamaLlmProvider({ client, model: 'test-model' })
+
+    await provider.complete('hello', { numCtx: 16384 })
+
+    expect(client.calls[0]).toMatchObject({ numCtx: 16384 })
+  })
+
+  it('omits numCtx when not given', async () => {
+    const client = clientReturning('x')
+    const provider = new OllamaLlmProvider({ client, model: 'test-model' })
+
+    await provider.complete('hello')
+
+    expect(client.calls[0]).not.toHaveProperty('numCtx')
+  })
 })
 
 describe('OllamaLlmProvider.json', () => {
@@ -194,7 +212,18 @@ describe('OllamaLlmProvider.json', () => {
     expect(client.calls[0]).toMatchObject({ temperature: 0.1, maxTokens: 500, json: true })
   })
 
-  it('omits temperature and maxTokens when no opts are given', async () => {
+  it('passes numCtx through to every attempt, the same way temperature and maxTokens are passed', async () => {
+    const client = clientReturning('not json', '{"ok":true}')
+    const provider = new OllamaLlmProvider({ client, model: 'm' })
+
+    await provider.json('p', 'Thing', parseThing, { numCtx: 16384 })
+
+    expect(client.calls).toHaveLength(2)
+    expect(client.calls[0]).toMatchObject({ numCtx: 16384 })
+    expect(client.calls[1]).toMatchObject({ numCtx: 16384 })
+  })
+
+  it('omits temperature, maxTokens, and numCtx when no opts are given', async () => {
     const client = clientReturning('{"ok":true}')
     const provider = new OllamaLlmProvider({ client, model: 'm' })
 
@@ -202,6 +231,7 @@ describe('OllamaLlmProvider.json', () => {
 
     expect(client.calls[0]).not.toHaveProperty('temperature')
     expect(client.calls[0]).not.toHaveProperty('maxTokens')
+    expect(client.calls[0]).not.toHaveProperty('numCtx')
   })
 
   it('logs each failed attempt so a bad prompt is diagnosable', async () => {

@@ -7,7 +7,10 @@ export interface Clock {
 
 export interface LlmProvider {
   /** Free-form completion. Used for scoring and rewriting. */
-  complete(prompt: string, opts?: { temperature?: number; maxTokens?: number }): Promise<string>
+  complete(
+    prompt: string,
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
+  ): Promise<string>
   /**
    * Completion constrained to a JSON shape. The adapter is responsible for retrying
    * until the response parses, so stages never see malformed JSON.
@@ -16,7 +19,7 @@ export interface LlmProvider {
     prompt: string,
     schemaName: string,
     parse: (raw: unknown) => T,
-    opts?: { temperature?: number; maxTokens?: number },
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
   ): Promise<T>
   /** Releases model memory. Called by the ModelBroker, never by a stage. */
   unload(): Promise<void>

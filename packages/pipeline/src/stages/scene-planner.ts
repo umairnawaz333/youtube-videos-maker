@@ -54,7 +54,7 @@ export const createScenePlannerStage = (): Stage => ({
       }),
       'ScenePlan',
       (raw) => RawScenePlanSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     const plan = {

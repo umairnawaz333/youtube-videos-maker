@@ -142,13 +142,17 @@ export class OllamaLlmProvider implements LlmProvider {
     this.attempts = deps.jsonAttempts ?? 3
   }
 
-  async complete(prompt: string, opts?: { temperature?: number; maxTokens?: number }): Promise<string> {
+  async complete(
+    prompt: string,
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
+  ): Promise<string> {
     return this.deps.client.generate({
       model: this.deps.model,
       prompt,
       json: false,
       ...(opts?.temperature === undefined ? {} : { temperature: opts.temperature }),
       ...(opts?.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
+      ...(opts?.numCtx === undefined ? {} : { numCtx: opts.numCtx }),
     })
   }
 
@@ -161,7 +165,7 @@ export class OllamaLlmProvider implements LlmProvider {
     prompt: string,
     schemaName: string,
     parse: (raw: unknown) => T,
-    opts?: { temperature?: number; maxTokens?: number },
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
   ): Promise<T> {
     let lastRaw = ''
     let lastError = 'unknown error'
@@ -173,6 +177,7 @@ export class OllamaLlmProvider implements LlmProvider {
         json: true,
         ...(opts?.temperature === undefined ? {} : { temperature: opts.temperature }),
         ...(opts?.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
+        ...(opts?.numCtx === undefined ? {} : { numCtx: opts.numCtx }),
       })
 
       try {

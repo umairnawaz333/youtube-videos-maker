@@ -28,6 +28,8 @@
   },
   "llm": {
     "temperature": 0.2,
+    "numCtx": 16384,
+    "maxFactsPerPrompt": 60,
     "topicScoutMaxCandidates": 15,
     "researchMinFactsPerBeat": 1.5
   }

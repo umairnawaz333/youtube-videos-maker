@@ -6,6 +6,7 @@ import {
   TopicSchema,
   type Stage,
 } from '@yt/core'
+import { selectFactsForPrompt } from './prompts/facts'
 import { buildScriptPrompt, computeBeatPlan } from './prompts/script-writer'
 
 export const createScriptWriterStage = (): Stage => ({
@@ -36,11 +37,25 @@ export const createScriptWriterStage = (): Stage => ({
       `writing a ~${targetSeconds}s script: ${beatsPerSection} beats per section across ${SECTION_KINDS.length} sections`,
     )
 
+    // Bounded to maxFactsPerPrompt: a corpus is allowed to grow well past this (the floor
+    // enforced above is a floor, not a ceiling), but listing every fact verbatim in one prompt
+    // is what overflowed a real run's context window before a single instruction token was
+    // added. The fact-checker must select from the same corpus with the same cap (see
+    // selectFactsForPrompt) so a claim grounded in a fact this stage saw is never later
+    // rejected for want of a fact the checker wasn't shown.
+    const promptFacts = selectFactsForPrompt(research.facts, ctx.config.llm.maxFactsPerPrompt)
+    if (promptFacts.length < research.facts.length) {
+      ctx.log.info(
+        `sending ${promptFacts.length} of ${research.facts.length} gathered facts to the script writer ` +
+          `(capped at maxFactsPerPrompt)`,
+      )
+    }
+
     const script = await ctx.providers.llm.json(
       buildScriptPrompt({
         topicTitle: topic.title,
         angle: topic.angle,
-        facts: research.facts.map((f) => f.text),
+        facts: promptFacts.map((f) => f.text),
         targetSeconds,
         beatsPerSection,
       }),
@@ -49,7 +64,7 @@ export const createScriptWriterStage = (): Stage => ({
       // provider's JSON retry loop re-asks. Silently rewriting an out-of-range value would
       // relax the schema to accommodate the model, which this stage must not do.
       (raw) => ScriptSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     await ctx.artifacts.write('script', ScriptSchema, script)

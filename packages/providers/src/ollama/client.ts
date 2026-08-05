@@ -5,6 +5,8 @@ export interface OllamaGenerateRequest {
   json: boolean
   temperature?: number
   maxTokens?: number
+  /** Context window size in tokens, forwarded to Ollama as `num_ctx`. */
+  numCtx?: number
 }
 
 export interface OllamaClient {
@@ -62,6 +64,7 @@ export const createHttpOllamaClient = (opts: {
         options: {
           ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
           ...(req.maxTokens === undefined ? {} : { num_predict: req.maxTokens }),
+          ...(req.numCtx === undefined ? {} : { num_ctx: req.numCtx }),
         },
       })
       if (!res.ok) {

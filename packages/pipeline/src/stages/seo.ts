@@ -81,7 +81,7 @@ export const createSeoStage = (): Stage => ({
         }),
         'SeoTitlesBatch',
         (raw) => TitleBatchSchema.parse(raw),
-        { temperature: ctx.config.llm.temperature },
+        { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
       )
       rawTitles.push(...batch.titles)
     }
@@ -95,7 +95,7 @@ export const createSeoStage = (): Stage => ({
       }),
       'SeoMetadata',
       (raw) => MetadataSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     // An over-long title is unusable, so discard rather than truncate: a title cut mid-word

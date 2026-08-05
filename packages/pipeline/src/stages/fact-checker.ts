@@ -7,6 +7,7 @@ import {
   STAGE_REQUIREMENTS,
   type Stage,
 } from '@yt/core'
+import { selectFactsForPrompt } from './prompts/facts'
 import { buildFactCheckPrompt } from './prompts/fact-checker'
 
 // The model is only ever shown each fact's *text*, never its sourceUrl (see ResearchSchema /
@@ -46,11 +47,24 @@ export const createFactCheckerStage = (): Stage => ({
     const research = await ctx.artifacts.read('research', ResearchSchema)
 
     const beats = script.sections.flatMap((s) => s.beats.map((b) => b.text))
+
+    // Must be the exact same slice the script writer's prompt was built from (see
+    // selectFactsForPrompt): the writer is only allowed to state what its facts support, so if
+    // this stage judged against a different slice, a claim genuinely grounded in a fact outside
+    // this stage's view would be marked unsupported through no fault of the narration.
+    const promptFacts = selectFactsForPrompt(research.facts, ctx.config.llm.maxFactsPerPrompt)
+    if (promptFacts.length < research.facts.length) {
+      ctx.log.info(
+        `checking against ${promptFacts.length} of ${research.facts.length} gathered facts ` +
+          `(capped at maxFactsPerPrompt, same slice the script writer used)`,
+      )
+    }
+
     const { claims: extractedClaims } = await ctx.providers.llm.json(
-      buildFactCheckPrompt({ beats, facts: research.facts.map((f) => f.text) }),
+      buildFactCheckPrompt({ beats, facts: promptFacts.map((f) => f.text) }),
       'FactCheckClaims',
       (raw) => ClaimsSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     // Roughly two-thirds of a real run's failures were rhetorical questions, narrative framing,
@@ -94,7 +108,7 @@ export const createFactCheckerStage = (): Stage => ({
     const claims = rawClaims.map(({ sourceFact, type: _type, ...claim }) => {
       const sourceUrl =
         claim.verdict === 'supported' && sourceFact !== undefined
-          ? research.facts[sourceFact - 1]?.sourceUrl
+          ? promptFacts[sourceFact - 1]?.sourceUrl
           : undefined
       return sourceUrl !== undefined ? { ...claim, sourceUrl } : claim
     })

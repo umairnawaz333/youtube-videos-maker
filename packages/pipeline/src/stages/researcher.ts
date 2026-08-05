@@ -54,7 +54,7 @@ export const createResearcherStage = (): Stage => ({
       buildEntityPrompt({ title: topic.title, angle: topic.angle }),
       'ResearchEntities',
       (raw) => EntitiesSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     // The model's extracted subject is the guarantee that the run's actual topic gets

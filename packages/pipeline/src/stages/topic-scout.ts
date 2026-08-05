@@ -131,7 +131,7 @@ export const createTopicScoutStage = (): Stage => ({
       }),
       'TopicSelection',
       (raw) => SelectionSchema.parse(raw),
-      { temperature: ctx.config.llm.temperature },
+      { temperature: ctx.config.llm.temperature, numCtx: ctx.config.llm.numCtx },
     )
 
     // Trust the scores over the stated choice: a local model sometimes names a key it was
