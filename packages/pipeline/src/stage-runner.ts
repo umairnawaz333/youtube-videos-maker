@@ -1,3 +1,4 @@
+import { STAGE_NAMES, STAGE_REQUIREMENTS, STAGE_RETRY_KIND } from '@yt/core'
 import type { Clock, RunContext, RunStatus, Stage, StageName } from '@yt/core'
 import type { Repositories } from '@yt/db'
 import { ModelBroker } from './model-broker'
@@ -8,6 +9,8 @@ export interface StageRunnerDeps {
   broker: ModelBroker
   repos: Repositories
   clock: Clock
+  /** Injected so backoff is instant in tests. Defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export interface RunResult {
@@ -17,7 +20,38 @@ export interface RunResult {
 }
 
 export class StageRunner {
-  constructor(private readonly deps: StageRunnerDeps) {}
+  constructor(private readonly deps: StageRunnerDeps) {
+    const names = deps.stages.map((s) => s.name)
+
+    const seen = new Set<StageName>()
+    for (const name of names) {
+      if (seen.has(name)) {
+        throw new Error(`StageRunner: duplicate stage '${name}' in the stage list`)
+      }
+      seen.add(name)
+    }
+
+    // Resume correctness depends on the list being a leading prefix of the canonical
+    // order: `completedStages` is matched by name, so a reordered or gapped list would
+    // silently change which stages are skipped on resume.
+    const expected = STAGE_NAMES.slice(0, names.length)
+    if (names.join('|') !== expected.join('|')) {
+      throw new Error(
+        `StageRunner: stages must be a leading prefix of the canonical order. ` +
+          `Expected ${expected.join(', ')} but got ${names.join(', ')}`,
+      )
+    }
+
+    for (const stage of deps.stages) {
+      if (stage.requires !== STAGE_REQUIREMENTS[stage.name]) {
+        throw new Error(
+          `StageRunner: stage '${stage.name}' declares requires='${stage.requires}' but the ` +
+            `canonical map says '${STAGE_REQUIREMENTS[stage.name]}'. The memory grouping ` +
+            `depends on these agreeing.`,
+        )
+      }
+    }
+  }
 
   async execute(ctx: RunContext): Promise<RunResult> {
     const { stages, broker, repos, clock } = this.deps
@@ -129,6 +163,13 @@ export class StageRunner {
           attempt,
         })
         await repos.runs.failStage(ctx.runId, stage.name, lastError, clock.now())
+
+        const backoff = ctx.config.retries.backoffMs[STAGE_RETRY_KIND[stage.name]]
+        if (attempt < maxAttempts && backoff > 0) {
+          const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+          // Doubling: attempt 1 waits `backoff`, attempt 2 waits `backoff * 2`.
+          await sleep(backoff * 2 ** (attempt - 1))
+        }
       } finally {
         lease.release()
       }

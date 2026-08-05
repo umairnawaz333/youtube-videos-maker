@@ -39,6 +39,16 @@ export const RetryConfigSchema = z.object({
   network: z.number().int().min(1),
   render: z.number().int().min(1),
   local: z.number().int().min(1),
+  /**
+   * Base delay before a retry, doubling each attempt. Spec section 8 promises backoff for
+   * network stages; retrying a rate-limited endpoint instantly just burns the budget.
+   */
+  backoffMs: z.object({
+    llm: z.number().int().nonnegative(),
+    network: z.number().int().nonnegative(),
+    render: z.number().int().nonnegative(),
+    local: z.number().int().nonnegative(),
+  }),
 })
 export type RetryConfig = z.infer<typeof RetryConfigSchema>
 
@@ -96,5 +106,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     waitTimeoutHours: 72,
   },
   brandCorner: { enabled: true, position: 'bottom-right' },
-  retries: { llm: 3, network: 3, render: 1, local: 1 },
+  retries: {
+    llm: 3,
+    network: 3,
+    render: 1,
+    local: 1,
+    backoffMs: { llm: 500, network: 2000, render: 0, local: 0 },
+  },
 }

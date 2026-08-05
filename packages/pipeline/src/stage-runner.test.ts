@@ -49,6 +49,7 @@ const runner = (stages: ReturnType<typeof fakeStage>[]) =>
     broker,
     repos,
     clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+    sleep: async () => {},
   })
 
 beforeEach(async () => {
@@ -231,6 +232,7 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
 
     const execution = flakyRunner.execute(context())
@@ -275,6 +277,7 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
     const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
 
@@ -307,6 +310,7 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
     const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
 
@@ -320,5 +324,76 @@ describe('StageRunner', () => {
     const errorLog = logs.find((l) => l.level === 'error')
     expect(errorLog?.message).toMatch(/model memory/i)
     expect(errorLog?.meta).toMatchObject({ resident: 'llm' })
+  })
+})
+
+describe('StageRunner stage-list validation', () => {
+  it('rejects a stage list in the wrong order', () => {
+    const reordered = [...STAGE_NAMES].reverse().map((n) => fakeStage(n))
+    expect(() => runner(reordered)).toThrow(/order/i)
+  })
+
+  it('rejects a stage list with a duplicate', () => {
+    const withDuplicate = [...STAGE_NAMES.map((n) => fakeStage(n)), fakeStage('seo')]
+    expect(() => runner(withDuplicate)).toThrow(/duplicate/i)
+  })
+
+  it('rejects a stage whose requires disagrees with the canonical map', () => {
+    const stages = STAGE_NAMES.map((n) => fakeStage(n))
+    stages[0] = { ...stages[0]!, requires: 'sd' }
+    expect(() => runner(stages)).toThrow(/requires/i)
+  })
+
+  it('accepts a leading prefix of the canonical order, so a partial pipeline is runnable', () => {
+    // This plan runs only the six LLM stages until later plans add the rest.
+    const prefix = STAGE_NAMES.slice(0, 6).map((n) => fakeStage(n))
+    expect(() => runner(prefix)).not.toThrow()
+  })
+})
+
+describe('StageRunner retry backoff', () => {
+  it('waits between attempts using the configured backoff for the stage kind', async () => {
+    const slept: number[] = []
+    const stages = STAGE_NAMES.map((n) =>
+      n === 'topic-scout' ? fakeStage(n, { failTimes: 2 }) : fakeStage(n),
+    )
+    const r = new StageRunner({
+      stages,
+      broker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+
+    const result = await r.execute(context())
+
+    expect(result.status).toBe('awaiting_review')
+    // topic-scout is a 'network' stage: 3 attempts means 2 waits, growing.
+    expect(slept).toHaveLength(2)
+    expect(slept[0]).toBe(DEFAULT_APP_CONFIG.retries.backoffMs.network)
+    expect(slept[1]).toBe(DEFAULT_APP_CONFIG.retries.backoffMs.network * 2)
+  })
+
+  it('does not wait after the final attempt', async () => {
+    const slept: number[] = []
+    const stages = STAGE_NAMES.map((n) =>
+      n === 'editor' ? fakeStage(n, { failTimes: 99 }) : fakeStage(n),
+    )
+    const r = new StageRunner({
+      stages,
+      broker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+
+    await r.execute(context())
+
+    // editor is a 'render' stage with 1 attempt, so there is nothing to wait for.
+    expect(slept).toEqual([])
   })
 })
