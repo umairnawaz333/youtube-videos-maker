@@ -1,4 +1,6 @@
+export * from './clips'
 export * from './process-runner'
+export * from './publish'
 export * from './captions'
 export * from './fake'
 export * from './image/client'

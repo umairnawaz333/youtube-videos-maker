@@ -134,6 +134,12 @@ export const AppConfigSchema = z.object({
   captions: z.boolean(),
   thumbnail: z.boolean(),
   autoPublish: z.boolean(),
+  /**
+   * Privacy requested at upload. Defaults to 'private' because that is the only honest default
+   * while the OAuth app is unverified: in Testing mode YouTube forces every upload private
+   * regardless of what is asked for, so a 'public' default would silently not mean what it says.
+   */
+  privacy: z.enum(['private', 'unlisted', 'public']).default('private'),
   clips: ClipsConfigSchema,
   brandCorner: BrandCornerSchema,
   retries: RetryConfigSchema,
@@ -165,6 +171,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   captions: true,
   thumbnail: true,
   autoPublish: false,
+  privacy: 'private',
   clips: {
     enabled: true,
     source: 'manual',
