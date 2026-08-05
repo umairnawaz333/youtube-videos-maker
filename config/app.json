@@ -28,6 +28,7 @@
   },
   "llm": {
     "temperature": 0.2,
-    "topicScoutMaxCandidates": 15
+    "topicScoutMaxCandidates": 15,
+    "researchMinFactsPerBeat": 1.5
   }
 }

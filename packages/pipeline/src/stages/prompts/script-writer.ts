@@ -8,6 +8,31 @@ import { SECTION_KINDS } from '@yt/core'
 export const SECONDS_PER_BEAT_HINT = 22
 
 /**
+ * The beat budget a given run's config resolves to — shared by the script writer (which uses
+ * it to build the prompt) and the researcher (which uses `totalBeats` to judge whether the
+ * gathered corpus is large enough to ground the script it is about to ask for). Keeping this
+ * in one place means the researcher's corpus-floor check is always judged against the exact
+ * beat count the script writer will actually target, not a separately maintained copy of the
+ * same arithmetic that could drift out of sync with it.
+ */
+export const computeBeatPlan = (config: {
+  videoType: 'shorts' | 'long'
+  duration: number
+  preset: { minDurationSec: number; maxDurationSec: number }
+}): { targetSeconds: number; beatsPerSection: number; totalBeats: number } => {
+  const { minDurationSec, maxDurationSec } = config.preset
+  const targetSeconds =
+    config.videoType === 'shorts'
+      ? Math.round((minDurationSec + maxDurationSec) / 2)
+      : Math.min(maxDurationSec, Math.max(minDurationSec, Math.round(config.duration * 60)))
+  const beatsPerSection = Math.max(
+    1,
+    Math.round(targetSeconds / (SECONDS_PER_BEAT_HINT * SECTION_KINDS.length)),
+  )
+  return { targetSeconds, beatsPerSection, totalBeats: beatsPerSection * SECTION_KINDS.length }
+}
+
+/**
  * The beat budget is stated explicitly because a local model asked for "about nine minutes"
  * produces wildly variable length. Telling it the section count, the per-section beat count
  * and the seconds per beat turns the length target into arithmetic it can follow.

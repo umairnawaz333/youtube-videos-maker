@@ -61,6 +61,18 @@ describe('AppConfigSchema', () => {
     }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
+
+  it('defaults the research corpus floor to 1.5 facts per targeted beat', () => {
+    expect(DEFAULT_APP_CONFIG.llm.researchMinFactsPerBeat).toBe(1.5)
+  })
+
+  it('rejects a non-positive research corpus floor', () => {
+    const bad = {
+      ...DEFAULT_APP_CONFIG,
+      llm: { ...DEFAULT_APP_CONFIG.llm, researchMinFactsPerBeat: 0 },
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
 })
 
 describe('NicheConfigSchema', () => {

@@ -36,12 +36,31 @@ export const createFactCheckerStage = (): Stage => ({
     const research = await ctx.artifacts.read('research', ResearchSchema)
 
     const beats = script.sections.flatMap((s) => s.beats.map((b) => b.text))
-    const { claims: rawClaims } = await ctx.providers.llm.json(
+    const { claims: extractedClaims } = await ctx.providers.llm.json(
       buildFactCheckPrompt({ beats, facts: research.facts.map((f) => f.text) }),
       'FactCheckClaims',
       (raw) => ClaimsSchema.parse(raw),
       { temperature: ctx.config.llm.temperature },
     )
+
+    // A real run extracted the same claim text four times over (17 claims, only 14 distinct),
+    // which inflates failureRatio below by counting one real unsupported claim as four —
+    // 53% reported instead of the true 43%. Dedupe by normalized text before anything else, so
+    // every computation past this point (the ratio, the halt, the written report) sees each
+    // distinct claim exactly once, keeping whichever occurrence came first.
+    const seenClaimTexts = new Set<string>()
+    const rawClaims = extractedClaims.filter((claim) => {
+      const key = claim.text.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (seenClaimTexts.has(key)) return false
+      seenClaimTexts.add(key)
+      return true
+    })
+    const duplicatesDropped = extractedClaims.length - rawClaims.length
+    if (duplicatesDropped > 0) {
+      ctx.log.info(
+        `dropped ${duplicatesDropped} duplicate claim(s) of ${extractedClaims.length} extracted before scoring`,
+      )
+    }
 
     // Map the model's fact number to the real sourceUrl ourselves; never trust a model-typed
     // URL. Only a "supported" claim can carry a citation at all — the prompt tells the model

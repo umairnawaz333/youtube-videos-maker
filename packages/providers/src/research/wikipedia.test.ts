@@ -194,6 +194,104 @@ describe('WikipediaResearchProvider', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a search result that is not actually about the query, real Wikipedia data', async () => {
+    // Reproduces the real failure: Wikipedia's search API, asked for the topic's raw
+    // news-headline title, returned exactly one result — "Brown dwarf", a real, well-
+    // documented, and utterly unrelated page — which the old limit=1/accept-anything code
+    // took at face value. The query and result below are the real ones captured from that run.
+    const requested: string[] = []
+    const fetchImpl = vi.fn(async (url: string) => {
+      requested.push(decodeURIComponent(url))
+      if (url.includes('/search/page')) {
+        return jsonResponse({ pages: [{ title: 'Brown dwarf', description: 'Substellar object' }] })
+      }
+      return new Response('', { status: 404 })
+    }) as unknown as typeof fetch
+    const logged: string[] = []
+
+    const facts = await new WikipediaResearchProvider({ fetchImpl, log: (m) => logged.push(m) }).lookup(
+      "NASA's PUNCH Sharpens Solar Storm Forecasting in First Test",
+    )
+
+    expect(facts).toEqual([])
+    // The summary endpoint for "Brown dwarf" must never even be requested — an unrelated
+    // search hit must not be silently promoted into a fetch.
+    expect(requested.some((u) => u.includes('Brown_dwarf'))).toBe(false)
+    const rejectionLog = logged.find((m) => m.includes('rejected'))
+    expect(rejectionLog).toContain("NASA's PUNCH Sharpens Solar Storm Forecasting in First Test")
+    expect(rejectionLog).toContain('Brown dwarf')
+  })
+
+  it('accepts a genuine match even with zero shared title words, real Wikipedia data', async () => {
+    // Reproduces the real, correct resolution: the model's entity name "NASA's PUNCH Mission"
+    // shares no words at all with the real page title "Polarimeter to Unify the Corona and
+    // Heliosphere" (PUNCH is an acronym for that name) — only "NASA" in the search result's
+    // description ties them together. Wikipedia ranks it first; that ranking must be trusted
+    // rather than overridden by a naive title-only overlap score.
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/search/page')) {
+        return jsonResponse({
+          pages: [
+            {
+              title: 'Polarimeter to Unify the Corona and Heliosphere',
+              description: 'NASA satellite of the Explorer program',
+            },
+            { title: 'Nicholeen Viall', description: 'American solar physicist' },
+            {
+              title: 'Magnetospheric Multiscale Mission',
+              description: "Four NASA robots studying Earth's magnetosphere (2015-present)",
+            },
+            { title: 'TRACERS', description: 'NASA heliophysics spacecraft' },
+            { title: 'List of Falcon 9 and Falcon Heavy launches', description: '' },
+          ],
+        })
+      }
+      if (url.includes('Polarimeter_to_Unify_the_Corona_and_Heliosphere')) {
+        return jsonResponse({
+          title: 'Polarimeter to Unify the Corona and Heliosphere',
+          extract: 'PUNCH is a NASA heliophysics mission to study the solar corona.',
+          content_urls: {
+            desktop: { page: 'https://en.wikipedia.org/wiki/Polarimeter_to_Unify_the_Corona_and_Heliosphere' },
+          },
+        })
+      }
+      return new Response('', { status: 404 })
+    }) as unknown as typeof fetch
+
+    const facts = await new WikipediaResearchProvider({ fetchImpl }).lookup("NASA's PUNCH Mission")
+
+    expect(facts).toHaveLength(1)
+    expect(facts[0]!.sourceUrl).toBe(
+      'https://en.wikipedia.org/wiki/Polarimeter_to_Unify_the_Corona_and_Heliosphere',
+    )
+  })
+
+  it('skips an irrelevant top search result to accept a genuinely related lower-ranked one', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/search/page')) {
+        return jsonResponse({
+          pages: [
+            { title: 'HENON', description: 'European spacecraft' },
+            { title: 'Solar cycle 25', description: 'Solar activity from 2019 to about 2030' },
+          ],
+        })
+      }
+      if (url.includes('Solar_cycle_25')) {
+        return jsonResponse({
+          title: 'Solar cycle 25',
+          extract: 'Solar cycle 25 is the current solar cycle.',
+          content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Solar_cycle_25' } },
+        })
+      }
+      return new Response('', { status: 404 })
+    }) as unknown as typeof fetch
+
+    const facts = await new WikipediaResearchProvider({ fetchImpl }).lookup('Solar Storm Forecasting')
+
+    expect(facts).toHaveLength(1)
+    expect(facts[0]!.sourceUrl).toBe('https://en.wikipedia.org/wiki/Solar_cycle_25')
+  })
+
   it('falls back to a constructed URL when the response omits content_urls', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({ title: 'Venus', extract: 'Venus is the second planet from the Sun.' }),

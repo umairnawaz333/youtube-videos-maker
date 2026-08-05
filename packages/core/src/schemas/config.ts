@@ -74,6 +74,22 @@ export const LlmConfigSchema = z.object({
    * entries, but no niche config currently lists more than two).
    */
   topicScoutMaxCandidates: z.number().int().min(5),
+  /**
+   * Minimum grounding facts the researcher must gather per beat the script writer will target,
+   * below which the researcher halts rather than handing the script writer a corpus too thin to
+   * ground what it writes. Not itself an LLM sampling parameter, but merged from here alongside
+   * `temperature` / `topicScoutMaxCandidates` since this is the config section resolveConfig
+   * already merges per-key.
+   *
+   * A real run gathered 13 facts for a ~22-beat script (~0.59 facts/beat) — three of those
+   * facts were about an unrelated topic the research corpus had been poisoned with — and the
+   * script writer, forced to invent detail to fill the gap, produced a script the fact-checker
+   * correctly rejected for a 53% unsupported-claim ratio (>15% threshold). The floor must sit
+   * meaningfully above that observed failure ratio: 1.5 facts/beat leaves room for beats that
+   * lean on the same fact as their neighbor while still demanding a materially richer corpus
+   * than the one that failed (36 facts for a 24-beat long-form script, vs. the 13 that failed).
+   */
+  researchMinFactsPerBeat: z.number().positive(),
 })
 export type LlmConfig = z.infer<typeof LlmConfigSchema>
 
@@ -142,5 +158,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   llm: {
     temperature: 0.2,
     topicScoutMaxCandidates: 15,
+    researchMinFactsPerBeat: 1.5,
   },
 }

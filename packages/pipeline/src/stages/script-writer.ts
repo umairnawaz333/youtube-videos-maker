@@ -6,7 +6,7 @@ import {
   TopicSchema,
   type Stage,
 } from '@yt/core'
-import { buildScriptPrompt, SECONDS_PER_BEAT_HINT } from './prompts/script-writer'
+import { buildScriptPrompt, computeBeatPlan } from './prompts/script-writer'
 
 export const createScriptWriterStage = (): Stage => ({
   name: 'script-writer',
@@ -22,23 +22,15 @@ export const createScriptWriterStage = (): Stage => ({
     // config value has no guaranteed relationship to it. Long-form IS driven by `duration`
     // (configured in minutes, converted to seconds), clamped into the preset's own min/max so an
     // out-of-range value can't push the stated target outside what the schema can carry.
-    const { minDurationSec, maxDurationSec } = ctx.config.preset
-    const targetSeconds =
-      ctx.config.videoType === 'shorts'
-        ? Math.round((minDurationSec + maxDurationSec) / 2)
-        : Math.min(maxDurationSec, Math.max(minDurationSec, Math.round(ctx.config.duration * 60)))
-
+    //
     // Beats-per-section is derived from the same per-beat seconds hint the prompt uses for its
     // word-count instruction (not a separate, disconnected constant), so the stated word target
     // and the beat budget the model is asked to hit can never drift apart. Within the long
     // preset's 480-600s window every in-range duration resolves to the same 3 beats/section
     // (24 beats total x 22s/beat = 528s, inside the window) -- duration changes the stated
     // target seconds and word count, not the beat structure. See batch-c-fixes-report for the
-    // full sweep.
-    const beatsPerSection = Math.max(
-      1,
-      Math.round(targetSeconds / (SECONDS_PER_BEAT_HINT * SECTION_KINDS.length)),
-    )
+    // full sweep. The researcher judges its corpus floor against this same beat plan.
+    const { targetSeconds, beatsPerSection } = computeBeatPlan(ctx.config)
 
     ctx.log.info(
       `writing a ~${targetSeconds}s script: ${beatsPerSection} beats per section across ${SECTION_KINDS.length} sections`,

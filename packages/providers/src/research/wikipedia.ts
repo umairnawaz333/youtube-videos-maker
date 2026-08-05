@@ -12,7 +12,46 @@ interface SummaryResponse {
 }
 
 interface SearchResponse {
-  pages?: { title?: string }[]
+  pages?: { title?: string; description?: string }[]
+}
+
+/**
+ * Connector words carry no relevance signal, so they are stripped before comparing a query to
+ * a candidate page — otherwise a shared "the" or "of" would count as a match.
+ */
+const STOPWORDS = new Set([
+  'a', 'an', 'the', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'is', 'are', 'was', 'were',
+  'this', 'that', 'these', 'those', 'with', 'from', 'about', 'its', 'into', 'over', 'under', 'as',
+  'by', 'be', 'it', 'than', 'then', 'so', 'if', 'not',
+])
+
+/** How many of Wikipedia's own top search results are considered before giving up. */
+const SEARCH_RESULTS_CONSIDERED = 5
+
+/**
+ * Below this many shared, meaningful tokens between the query and a candidate's title +
+ * description, a search hit is noise rather than a genuine match — the bar every candidate in
+ * a real run failed to clear when "NASA's PUNCH Sharpens Solar Storm Forecasting in First
+ * Test" resolved to "Brown dwarf".
+ */
+const MIN_TOKEN_OVERLAP = 1
+
+/** Lowercases, strips a trailing possessive, and splits into meaningful words. */
+const tokenize = (text: string): Set<string> =>
+  new Set(
+    text
+      .toLowerCase()
+      .replace(/['’]s\b/g, '')
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length > 0 && !STOPWORDS.has(token)),
+  )
+
+const overlapCount = (a: Set<string>, b: Set<string>): number => {
+  let count = 0
+  for (const token of a) {
+    if (b.has(token)) count++
+  }
+  return count
 }
 
 /**
@@ -51,15 +90,29 @@ export class WikipediaResearchProvider implements ResearchProvider {
 
   /**
    * Resolves a query to the title of Wikipedia's best-matching real article, or null if the
-   * search itself fails or finds nothing. A local model asked for "encyclopedia article
-   * titles" reliably names the right general subject but routinely phrases it differently
-   * from the actual page title ("Rocket Propulsion Systems" for the real "Spacecraft
-   * propulsion", "NASA's Artemis Program" for the real "Artemis program") — confirmed against
-   * a real run where every one of six plausible, genuinely-existing entities 404'd on an exact
-   * title match. Wikipedia's own search does the fuzzy matching instead of us guessing at it.
+   * search itself fails, finds nothing, or finds nothing relevant. A local model asked for
+   * "encyclopedia article titles" reliably names the right general subject but routinely
+   * phrases it differently from the actual page title ("Rocket Propulsion Systems" for the
+   * real "Spacecraft propulsion", "NASA's Artemis Program" for the real "Artemis program") —
+   * confirmed against a real run where every one of six plausible, genuinely-existing entities
+   * 404'd on an exact title match. Wikipedia's own search does the fuzzy matching instead of us
+   * guessing at it.
+   *
+   * But the raw top hit cannot be trusted blindly: a real run asked Wikipedia to search for the
+   * topic's news-headline title and got back "Brown dwarf" — a real, well-documented, and
+   * completely unrelated page — as its only result. So every candidate is gated on a token
+   * overlap check between the query and the candidate's title + description before being
+   * accepted, walked in Wikipedia's own rank order (not re-sorted by overlap score): Wikipedia's
+   * relevance ranking is trusted as the primary signal — it correctly puts the genuine "NASA's
+   * PUNCH Mission" -> "Polarimeter to Unify the Corona and Heliosphere" match first even though
+   * the two share no title words at all, only "NASA" in the description — and the overlap
+   * check exists purely to veto a top rank that is noise, not to pick a "better-scoring" lower
+   * rank instead (a naive highest-overlap-wins rule would have preferred "Magnetospheric
+   * Multiscale Mission" here, which shares "NASA" and "Mission" with the query by coincidence
+   * but is the wrong spacecraft entirely).
    */
   private async searchTitle(query: string): Promise<string | null> {
-    const url = `https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=1`
+    const url = `https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=${SEARCH_RESULTS_CONSIDERED}`
 
     try {
       const res = await this.fetchImpl(url, {
@@ -70,7 +123,31 @@ export class WikipediaResearchProvider implements ResearchProvider {
         return null
       }
       const body = (await res.json()) as SearchResponse
-      return body.pages?.[0]?.title ?? null
+      const pages = body.pages ?? []
+      if (pages.length === 0) {
+        this.log?.(`Wikipedia search for "${query}" returned no results`)
+        return null
+      }
+
+      const queryTokens = tokenize(query)
+      for (const page of pages) {
+        if (!page.title) continue
+        const candidateTokens = tokenize(`${page.title} ${page.description ?? ''}`)
+        if (overlapCount(queryTokens, candidateTokens) >= MIN_TOKEN_OVERLAP) {
+          return page.title
+        }
+      }
+
+      // Every candidate Wikipedia's own ranking offered was unrelated to the query. Accepting
+      // the top one anyway is exactly how "NASA's PUNCH Sharpens Solar Storm Forecasting in
+      // First Test" resolved to "Brown dwarf" in a real run. A rejected lookup contributes no
+      // facts, same as a 404 — but unlike a 404 it is otherwise silent, so it is logged with
+      // both the query and what was rejected.
+      const rejected = pages.map((p) => p.title).filter((t): t is string => Boolean(t))
+      this.log?.(
+        `rejected all ${rejected.length} Wikipedia search result(s) for "${query}" as unrelated: ${rejected.join(', ')}`,
+      )
+      return null
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       this.log?.(`Wikipedia search for "${query}" failed: ${detail}`)

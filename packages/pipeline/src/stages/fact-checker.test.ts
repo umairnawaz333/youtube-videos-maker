@@ -146,6 +146,59 @@ describe('createFactCheckerStage', () => {
     expect(() => new URL(report.claims[0]!.sourceUrl!)).not.toThrow()
   })
 
+  it('dedupes identical claim text before computing the failure ratio', async () => {
+    // Reproduces a real run: the model extracted the same claim text four times over (17 total,
+    // only 14 distinct: 8 supported, 6 unsupported), which inflated the reported failure ratio
+    // to 53% (9 failed / 17) instead of the true 43% (6 failed / 14) — both above the 15%
+    // threshold here, but the halt reason must cite the true, deduped numbers.
+    const repeatedUnsupported = {
+      text: 'The spacecraft must navigate the Van Allen radiation belts.',
+      verdict: 'unsupported' as const,
+    }
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        claims: [
+          ...Array.from({ length: 8 }, (_, i) => ({
+            text: `Supported claim ${i}.`,
+            verdict: 'supported' as const,
+            sourceFact: 1,
+          })),
+          repeatedUnsupported,
+          repeatedUnsupported,
+          repeatedUnsupported,
+          repeatedUnsupported,
+          ...Array.from({ length: 5 }, (_, i) => ({
+            text: `Distinct unsupported claim ${i}.`,
+            verdict: 'unsupported' as const,
+          })),
+        ],
+      })) as RunContext['providers']['llm']['json']
+
+    const outcome = await createFactCheckerStage().run(h.ctx)
+
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    expect(report.claims).toHaveLength(14)
+    expect(report.failureRatio).toBeCloseTo(6 / 14)
+    expect(outcome).toMatchObject({ status: 'halted' })
+  })
+
+  it('dedupes on normalized text, ignoring case and surrounding/collapsed whitespace', async () => {
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        claims: [
+          { text: '  The rover landed  safely.', verdict: 'supported', sourceFact: 1 },
+          { text: 'the rover landed safely.', verdict: 'unsupported' },
+        ],
+      })) as RunContext['providers']['llm']['json']
+
+    await createFactCheckerStage().run(h.ctx)
+
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    // Only the first occurrence survives, keeping its original (supported) verdict.
+    expect(report.claims).toHaveLength(1)
+    expect(report.claims[0]!.verdict).toBe('supported')
+  })
+
   it('accepts a ratio exactly at the threshold rather than halting on it', async () => {
     // 17 supported, 3 failed = 0.15 exactly. The rule is "more than 15%".
     h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
