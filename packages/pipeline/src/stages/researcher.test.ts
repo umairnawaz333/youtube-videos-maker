@@ -51,6 +51,23 @@ describe('createResearcherStage', () => {
     expect(research.facts).toHaveLength(3)
   })
 
+  it('caps how many entities are researched even when the model lists far more than asked', async () => {
+    // Reproduces a real qwen3:8b response: told to list at most 5, it returned 21.
+    const manyEntities = Array.from({ length: 21 }, (_, i) => `Entity number ${i}`)
+    h.providers.llm.json = (async () => ({ entities: manyEntities })) as RunContext['providers']['llm']['json']
+    const asked: string[] = []
+    h.providers.research.lookup = async (query) => {
+      asked.push(query)
+      return [{ text: `A sufficiently long grounding fact about ${query} here.`, sourceUrl: 'https://en.wikipedia.org/wiki/X' }]
+    }
+
+    await expect(createResearcherStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
+
+    // The topic title plus at most 5 of the model's entities.
+    expect(asked.length).toBeLessThanOrEqual(6)
+    expect(asked[0]).toBe('Why Venus rotates backwards')
+  })
+
   it('always researches the topic title even if the model omits it', async () => {
     h.providers.llm.json = (async () => ({ entities: ['Radar astronomy'] })) as RunContext['providers']['llm']['json']
     const asked: string[] = []

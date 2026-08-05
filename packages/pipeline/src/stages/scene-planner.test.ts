@@ -62,6 +62,28 @@ describe('createScenePlannerStage', () => {
     expect(plan.scenes).toHaveLength(8)
   })
 
+  it('fills in each scene\'s narration from the script rather than requiring the model to retype it', async () => {
+    // The model supplies only id, beatId, visual and camera — no "text" at all — which is the
+    // point: retyping every beat's full narration into the output roughly doubled a long-form
+    // plan's output length for no benefit, a real contributor to a local model producing
+    // malformed JSON on this stage's large prompts.
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        scenes: SECTION_KINDS.map((k) => ({
+          id: `scene-${k}-0`,
+          beatId: `${k}-0`,
+          visual: { kind: 'sd-image', prompt: `An image for ${k}` },
+          camera: 'zoom-in',
+        })),
+      })) as RunContext['providers']['llm']['json']
+
+    await createScenePlannerStage().run(h.ctx)
+
+    const plan = await h.ctx.artifacts.read('scenes', ScenePlanSchema)
+    const hookScene = plan.scenes.find((s) => s.beatId === 'hook-0')!
+    expect(hookScene.text).toBe('Narration for hook beat 0.')
+  })
+
   it('rewrites images beyond the budget as reuse of an earlier image', async () => {
     // Use the `long` preset here: its imageBudget is 70 with maxScenes 90, so we can exceed
     // the image budget without also exceeding the scene cap (which would halt the stage

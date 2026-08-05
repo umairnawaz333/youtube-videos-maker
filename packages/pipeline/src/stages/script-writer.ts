@@ -57,6 +57,7 @@ export const createScriptWriterStage = (): Stage => ({
       // provider's JSON retry loop re-asks. Silently rewriting an out-of-range value would
       // relax the schema to accommodate the model, which this stage must not do.
       (raw) => ScriptSchema.parse(raw),
+      { temperature: ctx.config.llm.temperature },
     )
 
     await ctx.artifacts.write('script', ScriptSchema, script)

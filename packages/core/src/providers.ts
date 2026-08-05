@@ -12,7 +12,12 @@ export interface LlmProvider {
    * Completion constrained to a JSON shape. The adapter is responsible for retrying
    * until the response parses, so stages never see malformed JSON.
    */
-  json<T>(prompt: string, schemaName: string, parse: (raw: unknown) => T): Promise<T>
+  json<T>(
+    prompt: string,
+    schemaName: string,
+    parse: (raw: unknown) => T,
+    opts?: { temperature?: number; maxTokens?: number },
+  ): Promise<T>
   /** Releases model memory. Called by the ModelBroker, never by a stage. */
   unload(): Promise<void>
 }

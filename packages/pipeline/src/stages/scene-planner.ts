@@ -1,12 +1,32 @@
+import { z } from 'zod'
 import {
   ScenePlanSchema,
   ScriptSchema,
+  SceneVisualSchema,
   STAGE_REQUIREMENTS,
+  CAMERA_MOVES,
   type Scene,
   type SceneVisual,
   type Stage,
 } from '@yt/core'
 import { buildScenePlanPrompt } from './prompts/scene-planner'
+
+// "text" is dropped from what the model must supply and copied from the script's own beat
+// instead. Requiring the model to echo back every beat's full narration roughly doubles the
+// output it has to produce for a long-form video's ~22-scene plan on top of the visual/camera
+// choice that is the actual point of this stage — real, unnecessary output length that a local
+// model handling a large plan can least afford. The beat text is already known verbatim; there
+// is nothing for the model to add by retyping it.
+const RawSceneSchema = z.object({
+  id: z.string().min(1),
+  beatId: z.string().min(1),
+  visual: SceneVisualSchema,
+  camera: z.enum(CAMERA_MOVES),
+})
+
+const RawScenePlanSchema = z.object({
+  scenes: z.array(RawSceneSchema).min(1),
+})
 
 export const createScenePlannerStage = (): Stage => ({
   name: 'scene-planner',
@@ -22,8 +42,9 @@ export const createScenePlannerStage = (): Stage => ({
       s.beats.map((b) => ({ id: b.id, text: b.text, sectionKind: s.kind })),
     )
     const sectionOfBeat = new Map(beats.map((b) => [b.id, b.sectionKind]))
+    const textOfBeat = new Map(beats.map((b) => [b.id, b.text]))
 
-    const plan = await ctx.providers.llm.json(
+    const rawPlan = await ctx.providers.llm.json(
       buildScenePlanPrompt({
         beats,
         styleSuffix: ctx.config.nicheConfig.styleSuffix,
@@ -32,8 +53,22 @@ export const createScenePlannerStage = (): Stage => ({
         clipSections: [...clipSections],
       }),
       'ScenePlan',
-      (raw) => ScenePlanSchema.parse(raw),
+      (raw) => RawScenePlanSchema.parse(raw),
+      { temperature: ctx.config.llm.temperature },
     )
+
+    const plan = {
+      scenes: rawPlan.scenes.map((scene) => ({
+        ...scene,
+        // Whatever beat this scene claims to be for, its narration comes from the script, not
+        // from the model's own retyping of it. An unrecognised beatId (the model naming one
+        // that doesn't exist) falls back to an empty string here — the same "not a real beat"
+        // problem TopicScout's own offered-candidates filter already guards against — which
+        // ScenePlanSchema's `text` min-length-1 requirement then rejects downstream, same as it
+        // would have rejected an empty echoed string before this change.
+        text: textOfBeat.get(scene.beatId) ?? '',
+      })),
+    }
 
     if (plan.scenes.length > preset.maxScenes) {
       return {

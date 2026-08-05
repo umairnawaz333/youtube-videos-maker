@@ -65,6 +65,11 @@ export const resolveConfig = ({ request, app, niche }: ResolveConfigInput): Reso
       ...defined(appLayer.retries),
       ...defined(requestLayer.retries),
     },
+    llm: {
+      ...DEFAULT_APP_CONFIG.llm,
+      ...defined(appLayer.llm),
+      ...defined(requestLayer.llm),
+    },
   }
 
   const validated = AppConfigSchema.parse(merged)

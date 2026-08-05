@@ -157,7 +157,12 @@ export class OllamaLlmProvider implements LlmProvider {
    * lives here rather than in every stage. A caller-supplied `parse` that throws counts as
    * a failed attempt: a syntactically valid but wrongly-shaped response is just as unusable.
    */
-  async json<T>(prompt: string, schemaName: string, parse: (raw: unknown) => T): Promise<T> {
+  async json<T>(
+    prompt: string,
+    schemaName: string,
+    parse: (raw: unknown) => T,
+    opts?: { temperature?: number; maxTokens?: number },
+  ): Promise<T> {
     let lastRaw = ''
     let lastError = 'unknown error'
 
@@ -166,6 +171,8 @@ export class OllamaLlmProvider implements LlmProvider {
         model: this.deps.model,
         prompt,
         json: true,
+        ...(opts?.temperature === undefined ? {} : { temperature: opts.temperature }),
+        ...(opts?.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
       })
 
       try {

@@ -185,6 +185,25 @@ describe('OllamaLlmProvider.json', () => {
     await expect(provider.json('p', 'Thing', parseThing)).rejects.toThrow(/Thing/)
   })
 
+  it('passes temperature and maxTokens through to every attempt', async () => {
+    const client = clientReturning('{"ok":true}')
+    const provider = new OllamaLlmProvider({ client, model: 'm' })
+
+    await provider.json('p', 'Thing', parseThing, { temperature: 0.1, maxTokens: 500 })
+
+    expect(client.calls[0]).toMatchObject({ temperature: 0.1, maxTokens: 500, json: true })
+  })
+
+  it('omits temperature and maxTokens when no opts are given', async () => {
+    const client = clientReturning('{"ok":true}')
+    const provider = new OllamaLlmProvider({ client, model: 'm' })
+
+    await provider.json('p', 'Thing', parseThing)
+
+    expect(client.calls[0]).not.toHaveProperty('temperature')
+    expect(client.calls[0]).not.toHaveProperty('maxTokens')
+  })
+
   it('logs each failed attempt so a bad prompt is diagnosable', async () => {
     const log = vi.fn<(message: string) => void>()
     const client = clientReturning('nope', '{"ok":true}')

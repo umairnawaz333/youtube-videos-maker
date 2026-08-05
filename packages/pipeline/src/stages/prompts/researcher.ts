@@ -9,10 +9,15 @@ export const buildEntityPrompt = (input: { title: string; angle: string }): stri
 Subject: ${input.title}
 Angle: ${input.angle}
 
-List the encyclopedia article titles that would need to be read to explain this accurately.
-Include the subject itself and between two and five closely related entities that the angle
-depends on — a measurement technique, a person, a place, a competing explanation. Do not list
-broad categories like "astronomy" or "history"; list specific article titles.
+List AT MOST 5 encyclopedia article titles that would need to be read to explain this
+accurately: the subject itself plus up to four closely related entities that the angle depends
+on — a measurement technique, a person, a place, a competing explanation. Do not list broad
+categories like "astronomy" or "history"; list specific article titles. Never exceed 5 entries.
+
+Only list an entity you are confident is the exact title of an existing encyclopedia article.
+If the subject is a specific recent event with no verified background available, prefer its
+established parent topic (the mission, the technology, the underlying phenomenon) over inventing
+a specific person, study, or theory to fit the story.
 
 Respond with JSON only:
 { "entities": ["<article title>", "..."] }`

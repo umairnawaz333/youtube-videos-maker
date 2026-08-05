@@ -87,7 +87,12 @@ export const createFakeProviders = (
     async complete(prompt) {
       return `fake completion for: ${prompt.slice(0, 40)}`
     },
-    async json<T>(_prompt: string, _schemaName: string, parse: (raw: unknown) => T): Promise<T> {
+    async json<T>(
+      _prompt: string,
+      _schemaName: string,
+      parse: (raw: unknown) => T,
+      _opts?: { temperature?: number; maxTokens?: number },
+    ): Promise<T> {
       return parse({ ok: true })
     },
     async unload() {},

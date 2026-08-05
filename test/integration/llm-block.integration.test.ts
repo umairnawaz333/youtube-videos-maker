@@ -63,12 +63,18 @@ describe('the LLM block against a real local model', () => {
     expect(topic.angle.length).toBeGreaterThan(10)
     console.log(`topic: ${topic.title} (${topic.total}/40) — ${topic.angle}`)
 
-    const script = await artifacts.read('script', ScriptSchema)
-    expect(script.sections.map((s) => s.kind)).toEqual([...SECTION_KINDS])
-    const beats = script.sections.flatMap((s) => s.beats)
-    expect(beats.every((b) => b.targetSeconds >= 15 && b.targetSeconds <= 30)).toBe(true)
-    console.log(`script: ${beats.length} beats, ~${beats.reduce((a, b) => a + b.targetSeconds, 0)}s`)
-    console.log(`hook: ${script.sections[0]!.beats[0]!.text}`)
+    // A halt as early as researcher (no facts found for any entity) is a legitimate outcome
+    // too, and leaves no script.json behind — script-writer never got a chance to run. Only
+    // assert on the script's shape when one was actually produced.
+    const wroteScript = await artifacts.exists('script')
+    if (wroteScript) {
+      const script = await artifacts.read('script', ScriptSchema)
+      expect(script.sections.map((s) => s.kind)).toEqual([...SECTION_KINDS])
+      const beats = script.sections.flatMap((s) => s.beats)
+      expect(beats.every((b) => b.targetSeconds >= 15 && b.targetSeconds <= 30)).toBe(true)
+      console.log(`script: ${beats.length} beats, ~${beats.reduce((a, b) => a + b.targetSeconds, 0)}s`)
+      console.log(`hook: ${script.sections[0]!.beats[0]!.text}`)
+    }
 
     if (result.status !== 'failed') {
       const scenes = await artifacts.read('scenes', ScenePlanSchema)

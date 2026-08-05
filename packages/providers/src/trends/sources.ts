@@ -137,6 +137,21 @@ const arxiv: SourceFetcher = async (fetchImpl) => {
     .map((title) => ({ key: slugifyKey(title), title, source: 'arxiv' as const, url: null }))
 }
 
+/**
+ * NASA's own newsroom feed. Added because the generic feeds (wikipedia-top's most-viewed
+ * list, arxiv's cs.AI papers) reliably return zero candidates with any real connection to
+ * space — confirmed against a real run, where an all-noise candidate list made qwen3:8b
+ * abandon the scoring task entirely rather than pick a bad-but-plausible answer. This feed's
+ * every item is genuinely space/science content, which the niche needs at least some of.
+ */
+const nasa: SourceFetcher = async (fetchImpl) => {
+  const xml = await getText(fetchImpl, 'https://www.nasa.gov/feed/')
+  // The first <title> is the feed's own title ("NASA"), not an entry.
+  return titlesFromFeed(xml)
+    .slice(1)
+    .map((title) => ({ key: slugifyKey(title), title, source: 'nasa' as const, url: null }))
+}
+
 const reddit: SourceFetcher = async (fetchImpl) => {
   const body = (await getJson(
     fetchImpl,
@@ -170,4 +185,5 @@ export const SOURCE_FETCHERS: Record<TrendSource, SourceFetcher> = {
   arxiv,
   reddit,
   'google-trends': googleTrends,
+  nasa,
 }

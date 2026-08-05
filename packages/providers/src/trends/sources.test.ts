@@ -53,3 +53,30 @@ describe('titlesFromFeed (via the arxiv fetcher)', () => {
     expect(got.map((c) => c.title)).toEqual(['literal &#39; sequence'])
   })
 })
+
+describe('the nasa fetcher', () => {
+  it('drops the feed\'s own title and returns each entry tagged with source "nasa"', async () => {
+    const xml =
+      '<rss><channel><title>NASA</title>' +
+      '<item><title><![CDATA[NASA Will Attempt to Observe Rocket Part’s Lunar Impact]]></title></item>' +
+      '<item><title><![CDATA[APOD: 2026 August 4 – Curious Cometary Knots]]></title></item>' +
+      '</channel></rss>'
+
+    const got = await SOURCE_FETCHERS.nasa(fetchReturningXml(xml))
+
+    expect(got).toEqual([
+      {
+        key: expect.stringContaining('nasa-will-attempt-to-observe-rocket-part'),
+        title: 'NASA Will Attempt to Observe Rocket Part’s Lunar Impact',
+        source: 'nasa',
+        url: null,
+      },
+      {
+        key: expect.stringContaining('apod-2026-august-4'),
+        title: 'APOD: 2026 August 4 – Curious Cometary Knots',
+        source: 'nasa',
+        url: null,
+      },
+    ])
+  })
+})

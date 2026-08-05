@@ -7,6 +7,7 @@ export const TREND_SOURCES = [
   'arxiv',
   'reddit',
   'google-trends',
+  'nasa',
 ] as const
 export type TrendSource = (typeof TREND_SOURCES)[number]
 
@@ -52,6 +53,24 @@ export const RetryConfigSchema = z.object({
 })
 export type RetryConfig = z.infer<typeof RetryConfigSchema>
 
+export const LlmConfigSchema = z.object({
+  /**
+   * Sampling temperature for every structured JSON call a stage makes. Ollama's own default
+   * (0.8) is tuned for open-ended chat, not for reliably staying inside a JSON schema — a
+   * qwen3:8b run against an unset temperature reproducibly abandoned the topic-scout task
+   * and emitted a hallucinated `{"error": ...}` refusal instead of scoring its candidates.
+   */
+  temperature: z.number().min(0).max(2),
+  /**
+   * Upper bound on how many trend candidates topic-scout puts in front of the model in one
+   * call. A real run against the unfiltered ~45-candidate default produced zero usable
+   * responses in ~15 attempts; capping (with source diversity preserved) keeps the prompt
+   * small enough for an 8B model to actually perform the scoring task.
+   */
+  topicScoutMaxCandidates: z.number().int().positive(),
+})
+export type LlmConfig = z.infer<typeof LlmConfigSchema>
+
 export const AppConfigSchema = z.object({
   niche: z.string().min(1),
   language: z.string().min(1),
@@ -68,6 +87,7 @@ export const AppConfigSchema = z.object({
   clips: ClipsConfigSchema,
   brandCorner: BrandCornerSchema,
   retries: RetryConfigSchema,
+  llm: LlmConfigSchema,
 })
 export type AppConfig = z.infer<typeof AppConfigSchema>
 
@@ -112,5 +132,9 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     render: 1,
     local: 1,
     backoffMs: { llm: 500, network: 2000, render: 0, local: 0 },
+  },
+  llm: {
+    temperature: 0.2,
+    topicScoutMaxCandidates: 15,
   },
 }

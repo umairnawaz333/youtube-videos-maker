@@ -10,25 +10,39 @@ import {
   type Stage,
   type TitleCandidate,
 } from '@yt/core'
-import { buildSeoPrompt } from './prompts/seo'
+import { buildSeoMetadataPrompt, buildSeoTitlesPrompt } from './prompts/seo'
 
 const REQUIRED_TITLES = 20
 
-const DraftSchema = z.object({
+// Titles are requested in small batches rather than all 20 at once — see the prompt file's
+// comment. Five per call reliably completes; twenty in one call reliably didn't (confirmed
+// against a real run: three straight attempts each came back as a hallucinated
+// '{"error": "..."}' refusal instead of twenty scored titles).
+const TITLES_PER_BATCH = 5
+
+// "total" is dropped from what the model must supply and computed here instead — same fix as
+// TopicScout's scoring call, and for the same reason: a local model reliably gets four
+// independent 0-10 scores right but cannot be trusted to also re-sum them correctly in the same
+// JSON object, and the sum is trivial for us to compute correctly every time.
+const TitleScoresSchema = z.object({
+  curiosity: z.number().min(0).max(10),
+  searchIntent: z.number().min(0).max(10),
+  simplicity: z.number().min(0).max(10),
+  ctr: z.number().min(0).max(10),
+})
+
+const TitleBatchSchema = z.object({
   titles: z
     .array(
       z.object({
         title: z.string().min(1),
-        scores: z.object({
-          curiosity: z.number().min(0).max(10),
-          searchIntent: z.number().min(0).max(10),
-          simplicity: z.number().min(0).max(10),
-          ctr: z.number().min(0).max(10),
-        }),
-        total: z.number().min(0).max(40),
+        scores: TitleScoresSchema,
       }),
     )
     .min(1),
+})
+
+const MetadataSchema = z.object({
   description: z.string().min(1),
   tags: z.array(z.string().min(1)),
   hashtags: z.array(z.string().min(1)),
@@ -53,29 +67,47 @@ export const createSeoStage = (): Stage => ({
     const topic = await ctx.artifacts.read('topic', TopicSchema)
     const script = await ctx.artifacts.read('script', ScriptSchema)
 
-    const draft = await ctx.providers.llm.json(
-      buildSeoPrompt({
+    const rawTitles: { title: string; scores: z.infer<typeof TitleScoresSchema> }[] = []
+    for (let requested = 0; requested < REQUIRED_TITLES; requested += TITLES_PER_BATCH) {
+      const count = Math.min(TITLES_PER_BATCH, REQUIRED_TITLES - requested)
+      const batch = await ctx.providers.llm.json(
+        buildSeoTitlesPrompt({ topicTitle: topic.title, angle: topic.angle, count }),
+        'SeoTitlesBatch',
+        (raw) => TitleBatchSchema.parse(raw),
+        { temperature: ctx.config.llm.temperature },
+      )
+      rawTitles.push(...batch.titles)
+    }
+
+    const metadata = await ctx.providers.llm.json(
+      buildSeoMetadataPrompt({
         topicTitle: topic.title,
         angle: topic.angle,
         beats: script.sections.flatMap((s) => s.beats.map((b) => b.text)),
         seoRules: ctx.config.nicheConfig.seoRules,
       }),
-      'SeoDraft',
-      (raw) => DraftSchema.parse(raw),
+      'SeoMetadata',
+      (raw) => MetadataSchema.parse(raw),
+      { temperature: ctx.config.llm.temperature },
     )
 
     // An over-long title is unusable, so discard rather than truncate: a title cut mid-word
     // scores badly for the very reasons it was scored on.
-    const usable: TitleCandidate[] = draft.titles
+    const usable: TitleCandidate[] = rawTitles
       .filter((t) => t.title.length <= MAX_TITLE_CHARS)
       .slice(0, REQUIRED_TITLES)
+      .map((t) => ({
+        title: t.title,
+        scores: t.scores,
+        total: t.scores.curiosity + t.scores.searchIntent + t.scores.simplicity + t.scores.ctr,
+      }))
 
     if (usable.length < REQUIRED_TITLES) {
       // THROW, do not halt. This is the last of six stages: halting would discard a finished,
       // fact-checked script because the model was stingy with titles — the one thing here that
       // is cheap to re-ask for. Throwing lets the stage's own retry budget apply.
       throw new Error(
-        `only ${usable.length} of ${draft.titles.length} titles were usable (need ${REQUIRED_TITLES}); ` +
+        `only ${usable.length} of ${rawTitles.length} titles were usable (need ${REQUIRED_TITLES}); ` +
           `titles over ${MAX_TITLE_CHARS} characters were discarded`,
       )
     }
@@ -86,9 +118,9 @@ export const createSeoStage = (): Stage => ({
     const seo = {
       titles: usable,
       chosenTitle: chosen.title,
-      description: draft.description.slice(0, MAX_DESCRIPTION_CHARS),
-      tags: fitTags(draft.tags),
-      hashtags: draft.hashtags,
+      description: metadata.description.slice(0, MAX_DESCRIPTION_CHARS),
+      tags: fitTags(metadata.tags),
+      hashtags: metadata.hashtags,
     }
 
     await ctx.artifacts.write('seo', SeoSchema, seo)

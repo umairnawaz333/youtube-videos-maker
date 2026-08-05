@@ -34,6 +34,7 @@ export const createFactCheckerStage = (): Stage => ({
       buildFactCheckPrompt({ beats, facts: research.facts.map((f) => f.text) }),
       'FactCheckClaims',
       (raw) => ClaimsSchema.parse(raw),
+      { temperature: ctx.config.llm.temperature },
     )
 
     const failed = claims.filter((c) => c.verdict !== 'supported').length

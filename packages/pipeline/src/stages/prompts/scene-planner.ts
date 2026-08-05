@@ -33,7 +33,6 @@ Respond with JSON only:
     {
       "id": "scene-1",
       "beatId": "<the beat id above>",
-      "text": "<the beat's narration, copied>",
       "visual": { "kind": "sd-image", "prompt": "<image prompt>, ${input.styleSuffix}" },
       "camera": "zoom-in"
     }
