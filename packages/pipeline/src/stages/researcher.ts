@@ -29,8 +29,19 @@ const EntitiesSchema = z.object({
  * researcher's own log line bounded regardless of how generous the model's list was. */
 const MAX_ENTITIES_RESEARCHED = 6
 
-/** Facts per entity. Enough to ground a script without burning the context window. */
-const MAX_FACTS_PER_ENTITY = 8
+// Facts per entity. The researcher now reads a full article (WikipediaResearchProvider fetches
+// `action=query&prop=extracts`, not just the lead), so a handful of entities easily clears the
+// corpus floor: a long-form run targets ~24 beats * 1.5 facts/beat = 36 facts
+// (researchMinFactsPerBeat), and up to MAX_ENTITIES_RESEARCHED (6) entities each contribute up to
+// this many, so even a run where only 2 of 6 entities resolve (the rest 404 or get rejected as
+// irrelevant) still clears the floor with 2 * 20 = 40 facts. At the other end, a fully successful
+// run tops out at 6 * 20 = 120 facts before dedupe — at a representative ~150 characters per
+// sentence-level fact, roughly 18,000 characters (~4,500 tokens at ~4 chars/token) added to the
+// script-writer prompt, which lists every fact by number. That is a small slice of any model's
+// context window next to the beat-by-beat instructions the same prompt already carries, whereas
+// the old cap of 8 (48 facts best case) was proven too thin: a real run of 5 well-chosen, on-topic
+// entities against lead-only summaries produced only 9 usable facts total.
+const MAX_FACTS_PER_ENTITY = 20
 
 export const createResearcherStage = (): Stage => ({
   name: 'researcher',
