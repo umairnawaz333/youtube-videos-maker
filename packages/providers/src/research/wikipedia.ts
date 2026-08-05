@@ -1,9 +1,8 @@
 import type { ResearchFact, ResearchProvider } from '@yt/core'
+import { fetchSourceArticleFacts } from './source-article'
+import { splitIntoFactSentences } from './sentences'
 
 const USER_AGENT = 'ai-youtube-factory/0.1 (local, personal use)'
-
-/** Below this length a fragment is an artefact of naive splitting, not a fact. */
-const MIN_FACT_CHARS = 25
 
 interface ExtractPage {
   title?: string
@@ -267,15 +266,19 @@ export class WikipediaResearchProvider implements ResearchProvider {
     const sourceUrl = `https://en.wikipedia.org/wiki/${slug}`
 
     const prose = proseFromExtract(page.extract)
+    const sentences = splitIntoFactSentences(prose, opts)
+    return sentences.map((text) => ({ text, sourceUrl }))
+  }
 
-    // Split on sentence boundaries followed by whitespace and a capital letter, which avoids
-    // breaking on decimals and common abbreviations.
-    const sentences = prose
-      .split(/(?<=[.!?])\s+(?=[A-Z(])/)
-      .map((s) => s.trim())
-      .filter((s) => s.length >= MIN_FACT_CHARS)
-
-    const limit = opts?.maxFacts ?? 8
-    return sentences.slice(0, limit).map((text) => ({ text, sourceUrl }))
+  /**
+   * Fetches grounding facts from one specific URL — a news topic's own source article, the
+   * only primary source for claims about a current event that has no Wikipedia article at all.
+   * This is deliberately not Wikipedia-specific: it delegates to the shared HTML-to-prose
+   * extractor, which applies to any web page. See `fetchSourceArticleFacts` for the guard
+   * against a page that does not look like real article prose (paywalled, JS-only, or a
+   * navigation dump) — such a page yields no facts rather than poisoning the corpus.
+   */
+  async lookupSource(url: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]> {
+    return fetchSourceArticleFacts(url, { fetchImpl: this.fetchImpl, log: this.log, maxFacts: opts?.maxFacts })
   }
 }

@@ -45,7 +45,7 @@ const getText = async (fetchImpl: typeof fetch, url: string): Promise<string> =>
  * pass over the original text, so an already-escaped entity like `&amp;#39;` decodes only its
  * outer `&amp;` — to `&#39;` — and is never re-scanned for a second round of decoding.
  */
-const decodeEntities = (text: string): string =>
+export const decodeEntities = (text: string): string =>
   text.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
     const e = entity.toLowerCase()
     switch (e) {
@@ -71,6 +71,29 @@ const titlesFromFeed = (xml: string): string[] =>
   [...xml.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/gi)]
     .map((m) => decodeEntities((m[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '')).trim())
     .filter((t) => t.length > 0)
+
+const stripCdata = (text: string): string => text.replace(/<!\[CDATA\[|\]\]>/g, '')
+
+/**
+ * Pulls {title, link} pairs out of each per-entry block of an RSS (`<item>`) or Atom
+ * (`<entry>`) feed, without adding an XML parser. Unlike `titlesFromFeed`, which globally
+ * matches every `<title>` in the document (including the channel/feed's own, hence the
+ * `.slice(1)` callers apply), this only looks inside entry blocks — a feed's own title and
+ * link, which sit outside any `<item>`/`<entry>`, are never picked up, so no such slicing is
+ * needed here. RSS's `<link>...</link>` and Atom's self-closing `<link href="..."/>` are both
+ * matched; a missing link resolves to null rather than dropping the entry.
+ */
+const itemsFromFeed = (xml: string): { title: string; link: string | null }[] =>
+  [...xml.matchAll(/<(?:item|entry)[^>]*>([\s\S]*?)<\/(?:item|entry)>/gi)]
+    .map((entryMatch) => {
+      const block = entryMatch[1] ?? ''
+      const title = decodeEntities(stripCdata(block.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '')).trim()
+      const linkText = block.match(/<link[^>]*>([\s\S]*?)<\/link>/i)?.[1]
+      const linkHref = block.match(/<link\b[^>]*\shref=["']([^"']+)["'][^>]*\/?>/i)?.[1]
+      const link = decodeEntities(stripCdata(linkText ?? linkHref ?? '')).trim()
+      return { title, link: link.length > 0 ? link : null }
+    })
+    .filter((entry) => entry.title.length > 0)
 
 /**
  * Two days back in UTC. Verified by hand against the live endpoint: yesterday's
@@ -146,10 +169,18 @@ const arxiv: SourceFetcher = async (fetchImpl) => {
  */
 const nasa: SourceFetcher = async (fetchImpl) => {
   const xml = await getText(fetchImpl, 'https://www.nasa.gov/feed/')
-  // The first <title> is the feed's own title ("NASA"), not an entry.
-  return titlesFromFeed(xml)
-    .slice(1)
-    .map((title) => ({ key: slugifyKey(title), title, source: 'nasa' as const, url: null }))
+  // Each entry's own <link> — not null — matters here specifically: NASA items are current
+  // news with no Wikipedia article of their own, so this URL is the only primary source the
+  // researcher stage can ever ground the chosen topic's own claims in (see
+  // WikipediaResearchProvider.lookupSource / the researcher stage's source-article fetch).
+  // itemsFromFeed only matches inside <item> blocks, so the channel's own title ("NASA") is
+  // never picked up and no .slice(1) is needed the way the title-only feeds below need it.
+  return itemsFromFeed(xml).map(({ title, link }) => ({
+    key: slugifyKey(title),
+    title,
+    source: 'nasa' as const,
+    url: link,
+  }))
 }
 
 const reddit: SourceFetcher = async (fetchImpl) => {

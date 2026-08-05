@@ -169,6 +169,101 @@ describe('createResearcherStage', () => {
     expect(research.facts.some((f) => f.text.includes('Good'))).toBe(true)
   })
 
+  describe('grounding the topic in its own source article', () => {
+    it('leads the corpus with the topic\'s own source-article facts, ahead of entity facts', async () => {
+      h.providers.llm.json = (async () => ({
+        subject: 'Venus',
+        entities: ['Radar astronomy'],
+      })) as RunContext['providers']['llm']['json']
+      const sourceLookups: string[] = []
+      h.providers.research.lookupSource = async (url) => {
+        sourceLookups.push(url)
+        return [{ text: 'A grounding fact straight from the topic\'s own source article here.', sourceUrl: url }]
+      }
+      h.providers.research.lookup = async (query) => [fact(query)]
+
+      await expect(createResearcherStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
+
+      expect(sourceLookups).toEqual(['https://en.wikipedia.org/wiki/Venus'])
+      const research = await h.ctx.artifacts.read('research', ResearchSchema)
+      expect(research.facts[0]!.text).toContain('straight from the topic')
+    })
+
+    it('falls back to background research alone when the source-article fetch throws', async () => {
+      h.providers.llm.json = (async () => ({
+        subject: 'Venus',
+        entities: ['Radar astronomy'],
+      })) as RunContext['providers']['llm']['json']
+      h.providers.research.lookupSource = async () => {
+        throw new Error('source page unreachable')
+      }
+      h.providers.research.lookup = async (query) => [fact(query)]
+
+      const outcome = await createResearcherStage().run(h.ctx)
+
+      expect(outcome).toEqual({ status: 'done' })
+      const research = await h.ctx.artifacts.read('research', ResearchSchema)
+      expect(research.facts.length).toBeGreaterThan(0)
+    })
+
+    it('falls back to background research alone when the source article yields nothing usable', async () => {
+      h.providers.llm.json = (async () => ({
+        subject: 'Venus',
+        entities: ['Radar astronomy'],
+      })) as RunContext['providers']['llm']['json']
+      h.providers.research.lookupSource = async () => []
+      h.providers.research.lookup = async (query) => [fact(query)]
+
+      const outcome = await createResearcherStage().run(h.ctx)
+
+      expect(outcome).toEqual({ status: 'done' })
+      const research = await h.ctx.artifacts.read('research', ResearchSchema)
+      expect(research.facts.length).toBe(2)
+    })
+
+    it('never looks up a source article when the topic has no url', async () => {
+      // A null-url topic (an arxiv/google-trends-style candidate with no article link).
+      await h.ctx.artifacts.write('topic', TopicSchema, {
+        key: 'venus',
+        title: 'Why Venus rotates backwards',
+        source: 'wikipedia-top',
+        url: null,
+        angle: 'Follow the radar measurement that revealed the retrograde spin.',
+        scores: { curiosity: 9, explainability: 8, visualPotential: 7, evergreen: 9 },
+        total: 33,
+      })
+      h.providers.llm.json = (async () => ({
+        subject: 'Venus',
+        entities: [],
+      })) as RunContext['providers']['llm']['json']
+      let called = false
+      h.providers.research.lookupSource = async () => {
+        called = true
+        return []
+      }
+      h.providers.research.lookup = async (query) => [fact(query)]
+
+      await createResearcherStage().run(h.ctx)
+
+      expect(called).toBe(false)
+    })
+
+    it('deduplicates a source-article fact that an entity lookup also returns', async () => {
+      h.providers.llm.json = (async () => ({
+        subject: 'Venus',
+        entities: ['Radar astronomy'],
+      })) as RunContext['providers']['llm']['json']
+      const sharedFact = { text: 'The very same grounding fact from two places.', sourceUrl: 'https://en.wikipedia.org/wiki/Venus' }
+      h.providers.research.lookupSource = async () => [sharedFact]
+      h.providers.research.lookup = async () => [sharedFact]
+
+      await createResearcherStage().run(h.ctx)
+
+      const research = await h.ctx.artifacts.read('research', ResearchSchema)
+      expect(research.facts).toHaveLength(1)
+    })
+  })
+
   describe('corpus-floor halt', () => {
     // The default long preset resolves to a 24-beat script (3 beats/section x 8 sections). At
     // the real default of 1.5 facts/beat that is a 36-fact floor.

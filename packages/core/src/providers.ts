@@ -117,6 +117,14 @@ export interface ResearchFact {
 export interface ResearchProvider {
   /** Returns grounding facts with their sources. An empty array means nothing was found. */
   lookup(query: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]>
+  /**
+   * Returns grounding facts extracted from one specific URL — the primary source for a
+   * news-derived topic (the trend candidate's own article), as distinct from `lookup`'s
+   * encyclopedic background research. Must never throw: a page that cannot be fetched, or
+   * whose content does not look like real article prose, resolves to an empty array so a bad
+   * source degrades the corpus rather than aborting the run.
+   */
+  lookupSource(url: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]>
 }
 
 export interface ProviderBundle {

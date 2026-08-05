@@ -75,6 +75,38 @@ export const createResearcherStage = (): Stage => ({
     const facts: ResearchFact[] = []
     const seen = new Set<string>()
 
+    // The chosen topic's own source article is a legitimate, citable primary source for a
+    // news-derived topic — the one thing every beat is actually about — and often the ONLY
+    // source: a current event has no Wikipedia article yet, so without this every claim tied
+    // to the news itself (not its encyclopedic background) is structurally unsupportable no
+    // matter how good the Wikipedia research below is. It leads the corpus (added first) so the
+    // script's actual subject is grounded before its background. A fetch failure or a page that
+    // doesn't look like real article prose must not kill the run — it falls back to
+    // Wikipedia-only research, exactly like one entity's lookup failing does below.
+    if (topic.url) {
+      try {
+        const sourceFacts = await ctx.providers.research.lookupSource(topic.url, {
+          maxFacts: MAX_FACTS_PER_ENTITY,
+        })
+        for (const fact of sourceFacts) {
+          const dedupeKey = fact.text.trim().toLowerCase()
+          if (seen.has(dedupeKey)) continue
+          seen.add(dedupeKey)
+          facts.push(fact)
+        }
+        if (sourceFacts.length > 0) {
+          ctx.log.info(`gathered ${sourceFacts.length} grounding facts from the topic's own source (${topic.url})`)
+        } else {
+          ctx.log.warn(
+            `the topic's own source (${topic.url}) yielded no usable facts; falling back to background research alone`,
+          )
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        ctx.log.warn(`source-article lookup for "${topic.url}" failed and was skipped: ${detail}`)
+      }
+    }
+
     for (const query of queries) {
       try {
         const found = await ctx.providers.research.lookup(query, { maxFacts: MAX_FACTS_PER_ENTITY })

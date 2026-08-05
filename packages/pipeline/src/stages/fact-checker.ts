@@ -15,11 +15,21 @@ import { buildFactCheckPrompt } from './prompts/fact-checker'
 // Instead it echoes back the number of the fact it relied on (the prompt numbers facts
 // `(1) ... (2) ...`), and we map that index to the fact's real, schema-validated sourceUrl
 // ourselves below.
+
+// The model labels every extracted sentence's type; only "factual" is ever scored. This is a
+// structural filter, not a sterner instruction: the prompt already told the model in plain
+// language that rhetorical questions and opinions are not claims, and a real run extracted them
+// anyway — a rhetorical question or narrative aside reported "unsupported" for want of a source
+// that could never exist for a sentence asserting nothing. Dropping every non-"factual" type in
+// code below survives the model ignoring the instruction in a way the instruction alone did not.
+const CLAIM_TYPES = ['factual', 'rhetorical', 'opinion', 'narrative'] as const
+
 const ClaimsSchema = z.object({
   claims: z
     .array(
       z.object({
         text: z.string().min(1),
+        type: z.enum(CLAIM_TYPES),
         verdict: z.enum(['supported', 'unsupported', 'contradicted']),
         sourceFact: z.number().optional(),
       }),
@@ -43,22 +53,36 @@ export const createFactCheckerStage = (): Stage => ({
       { temperature: ctx.config.llm.temperature },
     )
 
+    // Roughly two-thirds of a real run's failures were rhetorical questions, narrative framing,
+    // and value statements the model extracted as if they were checkable claims — none of them
+    // could ever be "supported" by any corpus, since none of them assert anything a source
+    // could confirm. Drop every non-"factual" type before scoring reaches them at all; only a
+    // "factual" sentence can fail the corpus, and only a "factual" sentence should be able to.
+    const factualClaims = extractedClaims.filter((claim) => claim.type === 'factual')
+    const nonFactualDropped = extractedClaims.length - factualClaims.length
+    if (nonFactualDropped > 0) {
+      ctx.log.info(
+        `dropped ${nonFactualDropped} non-factual claim(s) of ${extractedClaims.length} extracted ` +
+          `(rhetorical questions, opinions, or narrative framing) before scoring`,
+      )
+    }
+
     // A real run extracted the same claim text four times over (17 claims, only 14 distinct),
     // which inflates failureRatio below by counting one real unsupported claim as four —
     // 53% reported instead of the true 43%. Dedupe by normalized text before anything else, so
     // every computation past this point (the ratio, the halt, the written report) sees each
     // distinct claim exactly once, keeping whichever occurrence came first.
     const seenClaimTexts = new Set<string>()
-    const rawClaims = extractedClaims.filter((claim) => {
+    const rawClaims = factualClaims.filter((claim) => {
       const key = claim.text.trim().toLowerCase().replace(/\s+/g, ' ')
       if (seenClaimTexts.has(key)) return false
       seenClaimTexts.add(key)
       return true
     })
-    const duplicatesDropped = extractedClaims.length - rawClaims.length
+    const duplicatesDropped = factualClaims.length - rawClaims.length
     if (duplicatesDropped > 0) {
       ctx.log.info(
-        `dropped ${duplicatesDropped} duplicate claim(s) of ${extractedClaims.length} extracted before scoring`,
+        `dropped ${duplicatesDropped} duplicate claim(s) of ${factualClaims.length} factual claim(s) extracted before scoring`,
       )
     }
 
@@ -67,7 +91,7 @@ export const createFactCheckerStage = (): Stage => ({
     // not to cite an unsupported/contradicted claim, but we don't rely on it obeying that; an
     // out-of-range or missing index just means no citation, not a wrong one, and never a reason
     // to change the verdict (a supported claim with a bad index is still supported).
-    const claims = rawClaims.map(({ sourceFact, ...claim }) => {
+    const claims = rawClaims.map(({ sourceFact, type: _type, ...claim }) => {
       const sourceUrl =
         claim.verdict === 'supported' && sourceFact !== undefined
           ? research.facts[sourceFact - 1]?.sourceUrl
