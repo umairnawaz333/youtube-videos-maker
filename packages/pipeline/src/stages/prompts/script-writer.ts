@@ -5,7 +5,7 @@ import { SECTION_KINDS } from '@yt/core'
  * beat count — those differ, and the latter produced an instruction to write 16 words for a
  * beat that must last at least 15 seconds (~37 words), which is unsatisfiable.
  */
-const SECONDS_PER_BEAT_HINT = 22
+export const SECONDS_PER_BEAT_HINT = 22
 
 /**
  * The beat budget is stated explicitly because a local model asked for "about nine minutes"
@@ -21,6 +21,9 @@ export const buildScriptPrompt = (input: {
 }): string => {
   const factList = input.facts.map((f, i) => `${i + 1}. ${f}`).join('\n')
   const totalBeats = input.beatsPerSection * SECTION_KINDS.length
+  // Total word count derives from duration x 150 wpm (spec section 4 stage 3), independent of
+  // the fixed per-beat hint below -- this is the number that actually moves with `duration`.
+  const totalWords = Math.round(input.targetSeconds * 2.5)
 
   return `Write the narration script for one YouTube video.
 
@@ -32,7 +35,7 @@ ${SECTION_KINDS.map((k, i) => `${i + 1}. ${k}`).join('\n')}
 
 Each section contains beats. A beat is one spoken unit that introduces something new.
 
-LENGTH — the whole video runs about ${input.targetSeconds} seconds:
+LENGTH — the whole video runs about ${input.targetSeconds} seconds (roughly ${totalWords} words total at 150 words per minute):
 - ${input.beatsPerSection} beats per section, so about ${totalBeats} beats in total
 - every beat's targetSeconds MUST be between 15 and 30 inclusive
 - write roughly ${Math.round(SECONDS_PER_BEAT_HINT * 2.5)} words of narration per beat, since speech runs about 150 words per minute

@@ -38,12 +38,22 @@ const matchBalancedSpan = (text: string, start: number): string | null => {
 }
 
 /**
- * Find every balanced `{...}` / `[...]` span in `text`, in the order their opening bracket
- * appears. A `{` or `[` that never closes (a stray brace in surrounding prose) contributes no
- * span rather than corrupting the depth count for brackets that follow it.
+ * Find every balanced `{...}` / `[...]` span in `text`, grouped by top-level "family": a
+ * family is one outermost bracket plus every span nested inside it (outer span first, then its
+ * descendants in the order their opening bracket appears). A `{` or `[` that never closes (a
+ * stray brace in surrounding prose) contributes no span rather than corrupting the depth count
+ * for brackets that follow it.
+ *
+ * Families are returned LAST-FIRST so a later sibling JSON value (a second, separate top-level
+ * object/array following the first) is preferred over an earlier one — the same "prefer the
+ * later occurrence" rule `extractJson` already applies across fenced blocks. Nesting is
+ * structural, not a sequence of drafts, so a span's own descendants stay in outer-first order
+ * within its family rather than being caught up in that reversal.
  */
 const balancedSpans = (text: string): string[] => {
-  const spans: string[] = []
+  const families: string[][] = []
+  let currentFamily: string[] | null = null
+  let depth = 0
   let inString = false
   let escaped = false
 
@@ -63,12 +73,19 @@ const balancedSpans = (text: string): string[] => {
     }
 
     if (ch === '{' || ch === '[') {
+      if (depth === 0) {
+        currentFamily = []
+        families.push(currentFamily)
+      }
+      depth++
       const span = matchBalancedSpan(text, i)
-      if (span) spans.push(span)
+      if (span) currentFamily?.push(span)
+    } else if (ch === '}' || ch === ']') {
+      depth = Math.max(0, depth - 1)
     }
   }
 
-  return spans
+  return families.reverse().flat()
 }
 
 /**
@@ -77,9 +94,13 @@ const balancedSpans = (text: string): string[] => {
  *
  * Candidates are tried in order and the first one that actually parses is returned — the
  * caller's schema check is the final arbiter, so a parseable-but-wrong-shaped span is fine
- * where an unparseable one is not. Fenced blocks are checked last-to-first (a model's real
- * answer tends to follow any draft/example block), then unfenced balanced spans in the whole
- * response, first-to-last.
+ * where an unparseable one is not. "Prefer the later occurrence" is applied uniformly: fenced
+ * blocks are checked last-to-first (a model's real answer tends to follow any draft/example
+ * block), and `balancedSpans` applies that same rule one level down — among the top-level JSON
+ * values found within a single candidate string (a fenced block's contents, or the whole
+ * unfenced response), the later one is tried first. Otherwise a model that echoes the prompt's
+ * own JSON template (or writes an example object) before its real answer would have that draft
+ * picked first, exactly the bug the fenced-block ordering already guards against one level up.
  */
 export const extractJson = (raw: string): string => {
   const trimmed = raw.trim()

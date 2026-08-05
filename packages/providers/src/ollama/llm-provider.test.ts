@@ -66,6 +66,24 @@ describe('extractJson', () => {
     const result = extractJson('{"ok":true, "incomplete":')
     expect(() => JSON.parse(result)).toThrow()
   })
+
+  it('prefers the later of two complete JSON objects inside a single fenced block', () => {
+    const raw = 'Format example:\n```json\n{"note":"example"}\n{"result":"real"}\n```'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ result: 'real' })
+  })
+
+  it('prefers the later of two complete JSON objects in unfenced prose (placeholder-echo regression)', () => {
+    const raw = `Okay, the user wants me to respond with JSON only:
+{ "entities": ["<article title>", "..."] }
+
+Thinking about Venus and radar astronomy, my answer is:
+{ "entities": ["Venus", "Radar astronomy", "Tidal locking"] }`
+
+    expect(JSON.parse(extractJson(raw))).toEqual({
+      entities: ['Venus', 'Radar astronomy', 'Tidal locking'],
+    })
+  })
 })
 
 describe('OllamaLlmProvider.complete', () => {

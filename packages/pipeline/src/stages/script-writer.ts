@@ -6,10 +6,7 @@ import {
   TopicSchema,
   type Stage,
 } from '@yt/core'
-import { buildScriptPrompt } from './prompts/script-writer'
-
-/** Midpoint of the schema-permitted 15-30s beat window. */
-const SECONDS_PER_BEAT = 25
+import { buildScriptPrompt, SECONDS_PER_BEAT_HINT } from './prompts/script-writer'
 
 export const createScriptWriterStage = (): Stage => ({
   name: 'script-writer',
@@ -19,16 +16,28 @@ export const createScriptWriterStage = (): Stage => ({
     const topic = await ctx.artifacts.read('topic', TopicSchema)
     const research = await ctx.artifacts.read('research', ResearchSchema)
 
-    // Spec section 4 stage 3 derives the beat budget from the format preset's duration window,
-    // not from the operator's configured `duration` figure: the preset is what the eight-
-    // section, 15-30s-beat schema can actually carry, and the config value has no guaranteed
-    // relationship to it (shorts ignores it entirely; long-form can be set outside the preset's
-    // own min/max). Target the midpoint of the preset window.
+    // Spec: "Total word count derives from duration x 150 wpm." Shorts ignore the operator's
+    // configured `duration` entirely and target the preset window's midpoint, since the preset
+    // is what the eight-section, 15-30s-beat schema can actually carry for that format and the
+    // config value has no guaranteed relationship to it. Long-form IS driven by `duration`
+    // (configured in minutes, converted to seconds), clamped into the preset's own min/max so an
+    // out-of-range value can't push the stated target outside what the schema can carry.
     const { minDurationSec, maxDurationSec } = ctx.config.preset
-    const targetSeconds = Math.round((minDurationSec + maxDurationSec) / 2)
+    const targetSeconds =
+      ctx.config.videoType === 'shorts'
+        ? Math.round((minDurationSec + maxDurationSec) / 2)
+        : Math.min(maxDurationSec, Math.max(minDurationSec, Math.round(ctx.config.duration * 60)))
+
+    // Beats-per-section is derived from the same per-beat seconds hint the prompt uses for its
+    // word-count instruction (not a separate, disconnected constant), so the stated word target
+    // and the beat budget the model is asked to hit can never drift apart. Within the long
+    // preset's 480-600s window every in-range duration resolves to the same 3 beats/section
+    // (24 beats total x 22s/beat = 528s, inside the window) -- duration changes the stated
+    // target seconds and word count, not the beat structure. See batch-c-fixes-report for the
+    // full sweep.
     const beatsPerSection = Math.max(
       1,
-      Math.round(targetSeconds / (SECONDS_PER_BEAT * SECTION_KINDS.length)),
+      Math.round(targetSeconds / (SECONDS_PER_BEAT_HINT * SECTION_KINDS.length)),
     )
 
     ctx.log.info(
