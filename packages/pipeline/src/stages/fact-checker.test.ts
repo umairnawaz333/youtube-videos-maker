@@ -10,7 +10,7 @@ const claims = (supported: number, failed: number) => ({
     ...Array.from({ length: supported }, (_, i) => ({
       text: `Supported claim ${i}.`,
       verdict: 'supported' as const,
-      sourceUrl: 'https://en.wikipedia.org/wiki/Venus',
+      sourceFact: 1,
     })),
     ...Array.from({ length: failed }, (_, i) => ({
       text: `Unsupported claim ${i}.`,
@@ -92,25 +92,58 @@ describe('createFactCheckerStage', () => {
     await expect(h.ctx.artifacts.exists('factcheck')).resolves.toBe(true)
   })
 
-  it('accepts a claim whose sourceUrl is not a well-formed URL, rather than discarding the whole batch', async () => {
-    // Reproduces a real qwen3:8b run: the model is only ever given each fact's *text*, never
-    // its sourceUrl (see ResearchSchema), so it has no real citation to copy for a "supported"
-    // claim and can only approximate one. Requiring strict `.url()` formatting here burned the
-    // stage's entire retry budget rejecting an otherwise fully-scored, valid batch of claims —
-    // 3 attempts of 3 stage retries each, all discarded over this cosmetic field alone.
+  it('maps a claim citing a valid fact index to that fact\'s real sourceUrl', async () => {
     h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
       parse({
-        claims: [
-          { text: 'A supported claim.', verdict: 'supported', sourceUrl: 'NASA, official site' },
-          { text: 'Another supported claim.', verdict: 'supported', sourceUrl: 'nasa.gov' },
-        ],
+        claims: [{ text: 'Venus spins backwards.', verdict: 'supported', sourceFact: 1 }],
       })) as RunContext['providers']['llm']['json']
 
     await expect(createFactCheckerStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
 
     const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
-    expect(report.claims).toHaveLength(2)
+    expect(report.claims[0]!.sourceUrl).toBe('https://en.wikipedia.org/wiki/Venus')
+  })
+
+  it('drops the citation without throwing when the model cites an out-of-range fact index', async () => {
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        // Only one fact exists in the fixture (index 1); 7 does not exist.
+        claims: [{ text: 'Venus spins backwards.', verdict: 'supported', sourceFact: 7 }],
+      })) as RunContext['providers']['llm']['json']
+
+    await expect(createFactCheckerStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
+
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    // A bad index drops the citation but must not change the verdict or fail the batch.
+    expect(report.claims[0]!.sourceUrl).toBeUndefined()
+    expect(report.claims[0]!.verdict).toBe('supported')
     expect(report.failureRatio).toBe(0)
+  })
+
+  it('gives an unsupported claim no citation even if the model supplies a fact index', async () => {
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        claims: [{ text: 'A made-up claim.', verdict: 'unsupported', sourceFact: 1 }],
+      })) as RunContext['providers']['llm']['json']
+
+    await createFactCheckerStage().run(h.ctx)
+
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    expect(report.claims[0]!.sourceUrl).toBeUndefined()
+  })
+
+  it('writes an artifact that validates against FactCheckSchema, whose sourceUrl requires a well-formed URL', async () => {
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        claims: [{ text: 'Venus spins backwards.', verdict: 'supported', sourceFact: 1 }],
+      })) as RunContext['providers']['llm']['json']
+
+    await createFactCheckerStage().run(h.ctx)
+
+    // artifacts.read already validates with FactCheckSchema; a fabricated or malformed
+    // sourceUrl would have failed this .url() check before the assertion below ever runs.
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    expect(() => new URL(report.claims[0]!.sourceUrl!)).not.toThrow()
   })
 
   it('accepts a ratio exactly at the threshold rather than halting on it', async () => {

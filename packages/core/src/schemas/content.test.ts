@@ -194,13 +194,18 @@ describe('FactCheckSchema', () => {
     expect(FactCheckSchema.safeParse(report()).success).toBe(true)
   })
 
-  it('accepts a sourceUrl that is not a well-formed URL', () => {
-    // The fact-checker prompt never gives the model a per-fact sourceUrl to copy (only the
-    // fact's text), so it cannot reliably produce a well-formed URL for a "supported" claim.
-    // Confirmed against a real run: requiring `.url()` format here discarded an otherwise
-    // fully-scored, valid batch of claims purely over this cosmetic field.
-    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'NASA, official site' }]
+  it('accepts a well-formed sourceUrl', () => {
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'https://en.wikipedia.org/wiki/Venus' }]
     expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(true)
+  })
+
+  it('rejects a sourceUrl that is not a well-formed URL', () => {
+    // The fact-checker stage never lets the model type its own URL — it maps a fact index to
+    // the fact's real, already-validated sourceUrl (see fact-checker.ts). Any string reaching
+    // this schema that isn't a well-formed URL is a bug in that mapping, not a model quirk to
+    // tolerate: a fabricated citation is worse than none for a project whose point is grounding.
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'NASA, official site' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
   })
 
   it('rejects an empty sourceUrl string', () => {

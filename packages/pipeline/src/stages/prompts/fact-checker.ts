@@ -19,8 +19,8 @@ ${input.facts.map((f, i) => `(${i + 1}) ${f}`).join('\n')}
 Respond with JSON only:
 {
   "claims": [
-    { "text": "<the claim, quoted or closely paraphrased>", "verdict": "supported", "sourceUrl": "<omit unless supported>" }
+    { "text": "<the claim, quoted or closely paraphrased>", "verdict": "supported", "sourceFact": <the number in parentheses of the fact that supports this claim, omit unless supported> }
   ]
 }
 
-Include every claim you found. Do not include a sourceUrl for an unsupported or contradicted claim.`
+Include every claim you found. Do not include a sourceFact for an unsupported or contradicted claim.`
