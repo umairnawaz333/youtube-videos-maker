@@ -50,3 +50,6 @@ client_secret*.json
 packages/db/generated/
 # Test databases
 storage/test-*.db
+
+# Claude Code local config and worktrees
+.claude/
