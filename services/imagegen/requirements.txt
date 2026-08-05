@@ -1,0 +1,14 @@
+# torch has macOS arm64 wheels and uses the MPS backend, so no CUDA packages are pulled in.
+#
+# Only torch and diffusers are pinned. transformers, accelerate and huggingface-hub are left to
+# the resolver on purpose: pinning each to its own latest release produced a ResolutionImpossible,
+# because those three move together and the newest of each are not mutually compatible.
+torch==2.13.0
+diffusers==0.39.0
+transformers
+accelerate
+safetensors
+huggingface-hub[cli]
+pillow
+fastapi
+uvicorn
