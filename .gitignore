@@ -11,6 +11,7 @@
 assets/music/*
 !assets/music/.gitkeep
 !assets/music/LICENSES.md
+!assets/music/manifest.json
 
 # Python
 .venv/
