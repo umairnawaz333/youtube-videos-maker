@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { OllamaLlmProvider, type OllamaClient, type OllamaGenerateRequest } from '@yt/providers'
+import { OllamaLlmProvider, extractJson, type OllamaClient, type OllamaGenerateRequest } from '@yt/providers'
 
 const clientReturning = (...responses: string[]): OllamaClient & { calls: OllamaGenerateRequest[] } => {
   const calls: OllamaGenerateRequest[] = []
@@ -13,6 +13,60 @@ const clientReturning = (...responses: string[]): OllamaClient & { calls: Ollama
     async unload() {},
   }
 }
+
+describe('extractJson', () => {
+  it('picks the LAST fenced block when an earlier one is a format example', () => {
+    const raw =
+      'Format example:\n```json\n{"note":"example"}\n```\nActual answer:\n```json\n{"ok":true}\n```'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ ok: true })
+  })
+
+  it('does not treat a brace inside a string literal as ending the span', () => {
+    const raw = '{"ok":true,"note":"a brace } inside a string"}'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ ok: true, note: 'a brace } inside a string' })
+  })
+
+  it('ignores a stray brace in prose that precedes the real payload', () => {
+    const raw = 'Note: the symbol { means an opening brace. Result: {"ok":true}'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ ok: true })
+  })
+
+  it('ignores a stray brace in prose that follows the real payload', () => {
+    const raw = '{"ok":true} ... in curly braces like this }'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ ok: true })
+  })
+
+  it('recovers a fenced block with a language tag', () => {
+    const raw = '```json\n{"ok":true}\n```'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ ok: true })
+  })
+
+  it('recovers an array payload', () => {
+    const raw = 'Here you go: [1,2,3] thanks.'
+
+    expect(JSON.parse(extractJson(raw))).toEqual([1, 2, 3])
+  })
+
+  it('handles nested braces', () => {
+    const raw = 'prose { garbage } more prose {"a":{"b":{"c":1}}} trailing'
+
+    expect(JSON.parse(extractJson(raw))).toEqual({ a: { b: { c: 1 } } })
+  })
+
+  it('returns the trimmed input unchanged for an empty response', () => {
+    expect(extractJson('')).toBe('')
+  })
+
+  it('returns something for truncated input, and it still fails to parse (retry budget kicks in)', () => {
+    const result = extractJson('{"ok":true, "incomplete":')
+    expect(() => JSON.parse(result)).toThrow()
+  })
+})
 
 describe('OllamaLlmProvider.complete', () => {
   it('returns the model text and does not request JSON mode', async () => {
@@ -97,6 +151,20 @@ describe('OllamaLlmProvider.json', () => {
     await expect(provider.json('p', 'Thing', parseThing)).rejects.toThrow(/Thing/)
     await expect(provider.json('p', 'Thing', parseThing)).rejects.toThrow(/still not json/)
     expect(client.calls).toHaveLength(4) // 2 attempts per call, 2 calls
+  })
+
+  it('gives up on an empty response and still names the schema', async () => {
+    const client = clientReturning('')
+    const provider = new OllamaLlmProvider({ client, model: 'm', jsonAttempts: 1 })
+
+    await expect(provider.json('p', 'Thing', parseThing)).rejects.toThrow(/Thing/)
+  })
+
+  it('gives up on a truncated response and still names the schema', async () => {
+    const client = clientReturning('{"ok":true, "incomplete":')
+    const provider = new OllamaLlmProvider({ client, model: 'm', jsonAttempts: 1 })
+
+    await expect(provider.json('p', 'Thing', parseThing)).rejects.toThrow(/Thing/)
   })
 
   it('logs each failed attempt so a bad prompt is diagnosable', async () => {

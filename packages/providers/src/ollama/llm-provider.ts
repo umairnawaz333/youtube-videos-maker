@@ -2,22 +2,108 @@ import type { LlmProvider } from '@yt/core'
 import type { OllamaClient } from './client'
 
 /**
- * Local models frequently wrap JSON in prose or a fenced block even when told not to, so
- * pull the outermost JSON value out of whatever came back before parsing.
+ * Starting at `start` (which must be `{` or `[`), scan forward tracking string-literal state
+ * (respecting `\"` escapes) and bracket depth. Returns the balanced span if `start`'s bracket
+ * closes before the text ends, or null if it never does (a stray/unmatched opening bracket).
+ */
+const matchBalancedSpan = (text: string, start: number): string | null => {
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+
+    if (ch === '{' || ch === '[') {
+      depth++
+    } else if (ch === '}' || ch === ']') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Find every balanced `{...}` / `[...]` span in `text`, in the order their opening bracket
+ * appears. A `{` or `[` that never closes (a stray brace in surrounding prose) contributes no
+ * span rather than corrupting the depth count for brackets that follow it.
+ */
+const balancedSpans = (text: string): string[] => {
+  const spans: string[] = []
+  let inString = false
+  let escaped = false
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+
+    if (ch === '{' || ch === '[') {
+      const span = matchBalancedSpan(text, i)
+      if (span) spans.push(span)
+    }
+  }
+
+  return spans
+}
+
+/**
+ * Local models frequently wrap JSON in prose or a fenced block even when told not to, so pull
+ * the outermost JSON value out of whatever came back before parsing.
+ *
+ * Candidates are tried in order and the first one that actually parses is returned — the
+ * caller's schema check is the final arbiter, so a parseable-but-wrong-shaped span is fine
+ * where an unparseable one is not. Fenced blocks are checked last-to-first (a model's real
+ * answer tends to follow any draft/example block), then unfenced balanced spans in the whole
+ * response, first-to-last.
  */
 export const extractJson = (raw: string): string => {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw)
-  const text = (fenced?.[1] ?? raw).trim()
+  const trimmed = raw.trim()
 
-  const firstObj = text.indexOf('{')
-  const firstArr = text.indexOf('[')
-  const start =
-    firstObj === -1 ? firstArr : firstArr === -1 ? firstObj : Math.min(firstObj, firstArr)
-  if (start === -1) return text
+  const fenced = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((m) => (m[1] ?? '').trim())
 
-  const closer = text[start] === '{' ? '}' : ']'
-  const end = text.lastIndexOf(closer)
-  return end > start ? text.slice(start, end + 1) : text.slice(start)
+  const candidates: string[] = []
+  for (const block of [...fenced].reverse()) {
+    candidates.push(...balancedSpans(block))
+  }
+  candidates.push(...balancedSpans(raw))
+
+  for (const candidate of candidates) {
+    try {
+      JSON.parse(candidate)
+      return candidate
+    } catch {
+      // not this one — try the next candidate
+    }
+  }
+
+  // Nothing parsed: fall back to the first candidate (if any) so the caller gets a useful
+  // syntax error, or the outermost fenced block, or the raw trimmed text.
+  return candidates[0] ?? fenced[0] ?? trimmed
 }
 
 export class OllamaLlmProvider implements LlmProvider {

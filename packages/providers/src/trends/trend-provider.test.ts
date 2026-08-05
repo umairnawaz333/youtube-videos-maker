@@ -10,16 +10,27 @@ const candidate = (title: string, source: TopicCandidate['source']): TopicCandid
 })
 
 describe('slugifyKey', () => {
-  it('produces a stable lowercase slug', () => {
-    expect(slugifyKey('Why Venus Rotates Backwards')).toBe('why-venus-rotates-backwards')
+  it('produces a slug starting with the stable lowercase text', () => {
+    expect(slugifyKey('Why Venus Rotates Backwards')).toMatch(/^why-venus-rotates-backwards-[0-9a-f]{8}$/)
   })
 
   it('strips punctuation and collapses separators', () => {
-    expect(slugifyKey('  The "Great" Attractor: what is it?! ')).toBe('the-great-attractor-what-is-it')
+    expect(slugifyKey('  The "Great" Attractor: what is it?! ')).toMatch(
+      /^the-great-attractor-what-is-it-[0-9a-f]{8}$/,
+    )
   })
 
   it('is identical for titles differing only in case or spacing', () => {
     expect(slugifyKey('Deep  Sea   Vents')).toBe(slugifyKey('deep sea vents'))
+  })
+
+  it('is stable across two calls with the same title', () => {
+    expect(slugifyKey('Why Venus Rotates Backwards')).toBe(slugifyKey('Why Venus Rotates Backwards'))
+  })
+
+  it('produces three distinct keys for titles that slugify to the same text', () => {
+    const keys = new Set([slugifyKey('C'), slugifyKey('C++'), slugifyKey('C#')])
+    expect(keys.size).toBe(3)
   })
 })
 
