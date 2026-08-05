@@ -44,9 +44,26 @@ echo "--> installing sidecar dependencies"
 "$VENV/bin/python" -m pip install --quiet -r "$REPO_ROOT/services/imagegen/requirements.txt"
 
 # `hf download` resumes and verifies, so re-running costs a metadata check rather than 7 GB.
+#
+# --include is repeated per pattern on purpose. Passing several patterns to ONE flag
+# ("--include a b c") makes the CLI treat the trailing ones as explicit filenames and then warn
+# "Ignoring --exclude since filenames have been explicitly set" — which silently downloads the
+# wrong set. Repeating the flag is unambiguous.
+#
+# This fetches the fp16 diffusers layout (unet + both text encoders + vae, ~6.95 GB) and skips
+# `sd_xl_turbo_1.0_fp16.safetensors`, which is the SAME weights repackaged as one file. Grabbing
+# both would double the download for nothing.
 echo "--> fetching $IMAGE_MODEL weights into ${HF_HOME/#$REPO_ROOT\//}"
 "$VENV/bin/hf" download "$IMAGE_MODEL" \
-  --exclude "*.onnx" "*.onnx_data" "sd_xl_turbo_1.0.safetensors" "sd_xl_turbo_1.0_fp16.safetensors"
+  --include "*.json" \
+  --include "*.txt" \
+  --include "unet/*.fp16.safetensors" \
+  --include "text_encoder/*.fp16.safetensors" \
+  --include "text_encoder_2/*.fp16.safetensors" \
+  --include "vae/*.fp16.safetensors" \
+  --include "tokenizer/*" \
+  --include "tokenizer_2/*" \
+  --include "scheduler/*"
 
 echo
 echo "READY — run the sidecar with: pnpm imagegen:serve"
