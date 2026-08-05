@@ -6,6 +6,7 @@
   "scripts": {
     "test": "tsc -p tsconfig.base.json --noEmit && vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "doctor": "tsx packages/pipeline/src/cli.ts doctor",
     "check": "tsx packages/pipeline/src/cli.ts doctor",

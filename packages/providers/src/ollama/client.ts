@@ -37,9 +37,17 @@ export const createHttpOllamaClient = (opts: {
         body: JSON.stringify(body),
       })
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
+      // A bare fetch TypeError's own `.message` is an unhelpful "fetch failed" — the useful
+      // detail (ECONNREFUSED, a headers/body timeout, ...) lives on `.cause`. Surfacing both
+      // means a slow-but-alive server reads as "slow", not as "not running", which matters:
+      // a long generation on a local model can legitimately take minutes.
+      const cause =
+        error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : ''
+      const detail = error instanceof Error ? `${error.message}${cause}` : String(error)
       throw new Error(
-        `cannot reach the model server at ${base} (${detail}). Start one with: pnpm ollama:serve`,
+        `cannot reach the model server at ${base} (${detail}). ` +
+          "If it isn't running, start one with: pnpm ollama:serve. If it is running, this may " +
+          'be a slow response timing out rather than a dead server.',
       )
     }
   }

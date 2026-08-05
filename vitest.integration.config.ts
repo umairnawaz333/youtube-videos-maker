@@ -13,13 +13,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/**/*.test.ts', 'test/**/*.test.ts'],
-    // The opt-in integration suite is slow and loads a real model — it has its own config
-    // (vitest.integration.config.ts) and must never run as part of the default suite.
-    exclude: ['**/node_modules/**', 'test/integration/**'],
-    environment: 'node',
-    restoreMocks: true,
+    include: ['test/integration/**/*.integration.test.ts'],
     globalSetup: ['./test/setup/global-db.ts'],
-    testTimeout: 20_000,
+    // A local 8B model takes minutes for six stages.
+    testTimeout: 900_000,
+    hookTimeout: 60_000,
+    environment: 'node',
   },
 })
