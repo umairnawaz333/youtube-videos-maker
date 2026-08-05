@@ -6,7 +6,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 mkdir -p bin models/ollama
-export OLLAMA_MODELS="$REPO_ROOT/models/ollama"
+# `models/` may be a symlink (e.g. into the main checkout, when this is a git worktree).
+# `cd`-ing into it and taking `pwd -P` resolves through that symlink to the real, physical
+# directory, so OLLAMA_MODELS stays valid even if this worktree is later removed — a plain
+# "$REPO_ROOT/models/ollama" concatenation would still be a path through the now-gone worktree.
+export OLLAMA_MODELS="$(cd models/ollama && pwd -P)"
 
 MODEL="${LLM_MODEL:-qwen3:8b}"
 

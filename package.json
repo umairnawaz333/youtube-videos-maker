@@ -11,8 +11,9 @@
     "doctor": "tsx packages/pipeline/src/cli.ts doctor",
     "check": "tsx packages/pipeline/src/cli.ts doctor",
     "pipeline:run": "tsx packages/pipeline/src/cli.ts run",
+    "db:setup": "bash scripts/setup-env.sh",
     "ollama:setup": "bash scripts/setup-ollama.sh",
-    "ollama:serve": "OLLAMA_MODELS=\"$PWD/models/ollama\" ./bin/ollama serve"
+    "ollama:serve": "mkdir -p models/ollama && OLLAMA_MODELS=\"$(cd models/ollama && pwd -P)\" ./bin/ollama serve"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
