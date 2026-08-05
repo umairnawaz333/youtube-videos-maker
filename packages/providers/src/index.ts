@@ -1,5 +1,6 @@
 export * from './fake'
 export * from './ollama/client'
 export * from './ollama/llm-provider'
+export * from './research/wikipedia'
 export * from './trends/sources'
 export * from './trends/trend-provider'

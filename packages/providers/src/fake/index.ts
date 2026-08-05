@@ -12,6 +12,7 @@ import type {
   ProviderBundle,
   PublishProvider,
   PublishRequest,
+  ResearchProvider,
   TopicCandidate,
   TrendProvider,
   TtsProvider,
@@ -157,5 +158,15 @@ export const createFakeProviders = (
     },
   }
 
-  return { llm, tts, image, clip, caption, publish, trend, calls }
+  const research: ResearchProvider = {
+    async lookup(query, opts) {
+      const count = opts?.maxFacts ?? 5
+      return Array.from({ length: count }, (_, i) => ({
+        text: `Fake fact ${i + 1} about ${query}.`,
+        sourceUrl: `https://example.invalid/${encodeURIComponent(query)}#${i + 1}`,
+      }))
+    },
+  }
+
+  return { llm, tts, image, clip, caption, publish, trend, research, calls }
 }

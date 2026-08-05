@@ -46,6 +46,7 @@ const buildStageProviders = (): RunContext['providers'] => ({
   caption: { transcribe: vi.fn(async () => []) },
   publish: { publish: vi.fn(async () => ({ videoId: '' })) },
   trend: { fetchCandidates: vi.fn(async () => []) },
+  research: { lookup: vi.fn(async () => []) },
 })
 
 describe('Stage contract - compile-time guarantees', () => {
