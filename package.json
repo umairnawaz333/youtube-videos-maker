@@ -13,7 +13,9 @@
     "pipeline:run": "tsx packages/pipeline/src/cli.ts run",
     "db:setup": "bash scripts/setup-env.sh",
     "ollama:setup": "bash scripts/setup-ollama.sh",
-    "ollama:serve": "mkdir -p models/ollama && OLLAMA_MODELS=\"$(cd models/ollama && pwd -P)\" OLLAMA_CONTEXT_LENGTH=\"${OLLAMA_CONTEXT_LENGTH:-16384}\" ./bin/ollama serve"
+    "ollama:serve": "mkdir -p models/ollama && OLLAMA_MODELS=\"$(cd models/ollama && pwd -P)\" OLLAMA_CONTEXT_LENGTH=\"${OLLAMA_CONTEXT_LENGTH:-16384}\" ./bin/ollama serve",
+    "imagegen:setup": "bash scripts/setup-imagegen.sh",
+    "imagegen:serve": "HF_HOME=\"$(cd models/hf && pwd -P)\" .venv/bin/uvicorn main:app --app-dir services/imagegen --host 127.0.0.1 --port \"${IMAGEGEN_PORT:-8000}\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
