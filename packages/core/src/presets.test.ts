@@ -7,13 +7,19 @@ describe('format presets', () => {
       width: 1080,
       height: 1920,
       fps: 30,
-      minDurationSec: 45,
-      maxDurationSec: 60,
-      minScenes: 8,
-      maxScenes: 12,
-      imageBudget: 10,
+      minDurationSec: 120,
+      maxDurationSec: 180,
+      minScenes: 12,
+      maxScenes: 30,
+      imageBudget: 22,
       clipBudget: 2,
     })
+  })
+
+  it('gives shorts enough room for the eight-section arc at the minimum beat length', () => {
+    // 8 sections x 1 beat x 15s (BeatSchema's floor) = 120s. A shorter window would make
+    // every shorts run impossible to satisfy.
+    expect(FORMAT_PRESETS.shorts.minDurationSec).toBeGreaterThanOrEqual(120)
   })
 
   it('defines horizontal long-form', () => {

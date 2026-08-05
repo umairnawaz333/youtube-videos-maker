@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { STAGE_NAMES, STAGE_REQUIREMENTS } from '@yt/core'
 import { ModelBroker, type Evictable } from '@yt/pipeline'
 
 const evictable = (id: 'llm' | 'sd') => {
@@ -53,27 +54,6 @@ describe('ModelBroker', () => {
 
     expect(llm.unload).not.toHaveBeenCalled()
     expect(broker.resident).toBe('llm')
-  })
-
-  it('performs exactly two evictions across the full stage sequence', async () => {
-    const llm = evictable('llm')
-    const sd = evictable('sd')
-    const broker = new ModelBroker([llm.evictable, sd.evictable])
-    const sequence: Array<'llm' | 'sd' | 'none'> = [
-      'llm', 'llm', 'llm', 'llm', 'llm', 'llm',
-      'sd', 'sd',
-      'none', 'none', 'none', 'none', 'none', 'none',
-    ]
-
-    for (const req of sequence) {
-      ;(await broker.acquire(req)).release()
-    }
-
-    // llm evicted once when sd arrives; sd evicted once by evictAll at the end.
-    expect(llm.unload).toHaveBeenCalledTimes(1)
-    await broker.evictAll()
-    expect(sd.unload).toHaveBeenCalledTimes(1)
-    expect(broker.resident).toBeNull()
   })
 
   it('serialises concurrent acquisitions so two models never overlap', async () => {
@@ -262,5 +242,93 @@ describe('ModelBroker', () => {
 
     expect(broker.resident).toBe('llm')
     lease.release()
+  })
+})
+
+describe('ModelBroker exclusive requirement', () => {
+  it('evicts the resident model and leaves nothing resident', async () => {
+    const llm = evictable('llm')
+    const sd = evictable('sd')
+    const broker = new ModelBroker([llm.evictable, sd.evictable])
+
+    ;(await broker.acquire('sd')).release()
+    expect(broker.resident).toBe('sd')
+
+    const lease = await broker.acquire('exclusive')
+    expect(sd.unload).toHaveBeenCalledTimes(1)
+    expect(broker.resident).toBeNull()
+    lease.release()
+  })
+
+  it('is a no-op eviction when nothing is resident', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+
+    ;(await broker.acquire('exclusive')).release()
+
+    expect(llm.unload).not.toHaveBeenCalled()
+    expect(broker.resident).toBeNull()
+  })
+
+  it('queues behind a held lease rather than evicting underneath it', async () => {
+    const llm = evictable('llm')
+    const broker = new ModelBroker([llm.evictable])
+    const observed: string[] = []
+
+    const held = await broker.acquire('llm')
+    const exclusive = broker.acquire('exclusive').then((lease) => {
+      observed.push('exclusive-admitted')
+      lease.release()
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    observed.push('still-holding-llm')
+    expect(broker.resident).toBe('llm')
+    held.release()
+    await exclusive
+
+    expect(observed).toEqual(['still-holding-llm', 'exclusive-admitted'])
+    expect(broker.resident).toBeNull()
+  })
+
+  it('does not deadlock when the eviction it triggers rejects', async () => {
+    // Rejects once (the exclusive eviction below), then succeeds — mirroring the
+    // pre-existing 'rejects the eviction when unload() rejects' test's pattern. An
+    // always-throwing unload would make the deadlock-regression assertion below
+    // (acquire('llm'), which must evict the still-resident 'sd') reject a second
+    // time too, since a failed eviction fails closed and leaves 'sd' resident.
+    const failingUnload = vi.fn(async () => {})
+    failingUnload.mockRejectedValueOnce(new Error('sd unload failed'))
+    const failing: Evictable = { id: 'sd', unload: failingUnload }
+    const llm = evictable('llm')
+    const broker = new ModelBroker([failing, llm.evictable])
+
+    ;(await broker.acquire('sd')).release()
+    await expect(broker.acquire('exclusive')).rejects.toThrow('sd unload failed')
+
+    // The lock must have been released, so the broker is still usable.
+    const after = await broker.acquire('llm')
+    expect(broker.resident).toBe('llm')
+    after.release()
+  })
+
+  it('performs exactly two unloads across the full stage sequence, with SD gone before narration', async () => {
+    const llm = evictable('llm')
+    const sd = evictable('sd')
+    const broker = new ModelBroker([llm.evictable, sd.evictable])
+    let residentAtNarrator: string | null = 'unset' as unknown as string | null
+
+    for (const name of STAGE_NAMES) {
+      const lease = await broker.acquire(STAGE_REQUIREMENTS[name])
+      if (name === 'narrator') residentAtNarrator = broker.resident
+      lease.release()
+    }
+
+    expect(llm.unload).toHaveBeenCalledTimes(1)
+    expect(sd.unload).toHaveBeenCalledTimes(1)
+    // The whole point: no heavy model is resident once narration starts.
+    expect(residentAtNarrator).toBeNull()
+    await broker.evictAll()
+    expect(broker.resident).toBeNull()
   })
 })

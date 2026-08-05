@@ -36,8 +36,9 @@ export class ModelBroker {
       return { release: () => {} }
     }
 
-    const evictable = this.evictables.get(requirement)
-    if (!evictable) {
+    // 'exclusive' has no evictable of its own — it means "evict whatever is resident
+    // and run with the memory to yourself". It still queues, because it mutates residency.
+    if (requirement !== 'exclusive' && !this.evictables.has(requirement)) {
       throw new Error(`ModelBroker: no evictable registered for '${requirement}'`)
     }
 
@@ -51,12 +52,21 @@ export class ModelBroker {
     await waitFor
 
     try {
-      if (this.current !== null && this.current !== requirement) {
-        const incumbent = this.evictables.get(this.current)
-        if (incumbent) await incumbent.unload()
-        this.current = null
+      if (requirement === 'exclusive') {
+        // Evict the incumbent and stay at null: nothing is resident for this stage.
+        if (this.current !== null) {
+          const incumbent = this.evictables.get(this.current)
+          if (incumbent) await incumbent.unload()
+          this.current = null
+        }
+      } else {
+        if (this.current !== null && this.current !== requirement) {
+          const incumbent = this.evictables.get(this.current)
+          if (incumbent) await incumbent.unload()
+          this.current = null
+        }
+        this.current = requirement
       }
-      this.current = requirement
     } catch (err) {
       // A rejecting unload() must not leave `held` (and therefore `this.tail`)
       // stuck forever — that would deadlock every future acquire(). We release

@@ -252,7 +252,15 @@ describe('StageRunner', () => {
   // failing unload()), and a throw from `finally` replaces whatever the `try` block
   // already returned — so execute() must catch that rejection, log it, and still
   // resolve with the RunResult it had already computed.
-  it('resolves with awaiting_review and logs an error when evictAll fails after an otherwise successful run', async () => {
+  // Amendment (Task 1): narrator is now 'exclusive', so sd is evicted at narrator, not
+  // by the final evictAll() — no stage in a full run reaches evictAll() with a heavy
+  // model still resident. A persistently-failing unload() therefore surfaces as a
+  // narrator stage failure (it exhausts its retry budget) rather than as a cleanup-only
+  // failure on an otherwise-successful run. The intent this test guards — that a
+  // rejecting unload() during cleanup is caught, logged, and never escapes execute() as
+  // a thrown rejection — still holds: the finally block's own evictAll() re-attempts the
+  // same doomed eviction (current stays 'sd', fail-closed) and that failure is logged too.
+  it('resolves with a failed status when the exclusive narrator eviction rejects, and logs the cleanup failure too', async () => {
     const logs: { level: string; message: string; meta?: Record<string, unknown> }[] = []
     const flakySd: Evictable = {
       id: 'sd',
@@ -270,10 +278,11 @@ describe('StageRunner', () => {
     })
     const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
 
-    // sd is only evicted by the final evictAll() (never mid-run — no stage after the
-    // sd block needs a different model), so this is a genuinely successful run whose
-    // cleanup alone fails.
-    await expect(flakyRunner.execute(ctx)).resolves.toMatchObject({ status: 'awaiting_review' })
+    const execution = flakyRunner.execute(ctx)
+    await expect(execution).resolves.toMatchObject({ status: 'failed', stoppedAt: 'narrator' })
+
+    const result = await execution
+    expect(result.reason).toContain('narrator failed')
 
     const errorLog = logs.find((l) => l.level === 'error')
     expect(errorLog?.message).toMatch(/model memory/i)
