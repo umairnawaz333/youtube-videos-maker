@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { CaptionProvider, CaptionWord } from '@yt/core'
-import { nodeProcessRunner, type ProcessRunner } from './process-runner'
+import { nodeProcessRunner, type ProcessRunner } from '../../process-runner'
 
 /** The subset of whisper.cpp's `--output-json` shape this provider actually reads. Every
  * other field (systeminfo, model, params, result.language, ...) is ignored. */

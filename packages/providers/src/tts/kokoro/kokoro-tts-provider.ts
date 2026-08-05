@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { TtsProvider, TtsSpeakRequest, TtsSpeakResult } from '@yt/core'
 import { readWavDurationSec } from '../wav'
-import { nodeProcessRunner, type ProcessRunner } from './process-runner'
+import { nodeProcessRunner, type ProcessRunner } from '../../process-runner'
 
 /**
  * Generic voice hints (matching `config/niches/*.json`'s `"voice": "male"` style values) are

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createKokoroTtsProvider, DEFAULT_KOKORO_VOICE_MAP } from './kokoro-tts-provider'
-import type { ProcessRunner } from './process-runner'
+import type { ProcessRunner } from '../../process-runner'
 
 let dir: string
 
