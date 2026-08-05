@@ -27,6 +27,16 @@ export class RunRepository {
     return run as (Omit<NonNullable<typeof run>, 'status'> & { status: RunStatus }) | null
   }
 
+  /**
+   * Newest first, for the dashboard's run list. Exists so the dashboard reads runs through this
+   * repository like every other consumer, rather than reaching past it into Prisma directly —
+   * the status cast below is the reason: it belongs in one place, not at each call site.
+   */
+  async list() {
+    const runs = await this.prisma.run.findMany({ orderBy: { createdAt: 'desc' } })
+    return runs as (Omit<(typeof runs)[number], 'status'> & { status: RunStatus })[]
+  }
+
   async setStatus(id: string, status: RunStatus): Promise<void> {
     await this.prisma.run.update({ where: { id }, data: { status } })
   }

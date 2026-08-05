@@ -24,21 +24,14 @@ export interface RunSummary {
   updatedAt: Date
 }
 
-/**
- * Lists every run, newest first, for the dashboard's home page.
- *
- * `RunRepository` (packages/db/src/repositories/run.repository.ts) has no `list()` method
- * today — every other read in this app goes through it, but this one gap is filled with a
- * direct, read-only Prisma query instead. See the dashboard build report for the exact
- * `RunRepository.list()` addition this should be replaced with.
- */
+/** Lists every run, newest first, for the dashboard's home page. */
 export const listRuns = async (): Promise<RunSummary[]> => {
-  const rows = await getPrisma().run.findMany({ orderBy: { createdAt: 'desc' } })
-  return rows.map((r) => ({
+  const runs = await getRepos().runs.list()
+  return runs.map((r) => ({
     id: r.id,
     niche: r.niche,
     format: r.format as VideoFormat,
-    status: r.status as RunStatus,
+    status: r.status,
     videoId: r.videoId,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,

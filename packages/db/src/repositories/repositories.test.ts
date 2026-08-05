@@ -30,6 +30,27 @@ describe('RunRepository', () => {
     expect(run).toMatchObject({ id: 'run-1', niche: 'space', format: 'long', status: 'queued' })
   })
 
+  it('lists runs newest first, which is the order the dashboard displays them in', async () => {
+    await newRun()
+    await repos.runs.create({
+      id: 'run-2',
+      niche: 'history',
+      format: 'shorts',
+      createdAt: new Date('2026-08-02T10:00:00.000Z'),
+    })
+
+    const runs = await repos.runs.list()
+
+    // run-2 is the later createdAt, so it must come first — an ascending order would still
+    // return both rows and pass a length-only assertion.
+    expect(runs.map((r) => r.id)).toEqual(['run-2', 'run-1'])
+    expect(runs[0]).toMatchObject({ niche: 'history', format: 'shorts', status: 'queued' })
+  })
+
+  it('returns an empty list rather than throwing when no runs exist', async () => {
+    expect(await repos.runs.list()).toEqual([])
+  })
+
   it('records stage completion so runs can resume', async () => {
     await newRun()
     await repos.runs.startStage('run-1', 'topic-scout', new Date('2026-08-01T10:00:01.000Z'))
