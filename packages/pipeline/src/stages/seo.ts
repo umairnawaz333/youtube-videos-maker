@@ -71,7 +71,14 @@ export const createSeoStage = (): Stage => ({
     for (let requested = 0; requested < REQUIRED_TITLES; requested += TITLES_PER_BATCH) {
       const count = Math.min(TITLES_PER_BATCH, REQUIRED_TITLES - requested)
       const batch = await ctx.providers.llm.json(
-        buildSeoTitlesPrompt({ topicTitle: topic.title, angle: topic.angle, count }),
+        buildSeoTitlesPrompt({
+          topicTitle: topic.title,
+          angle: topic.angle,
+          count,
+          // Nudges a later batch away from repeating an earlier one, on top of the dedupe
+          // below that actually enforces it — see the prompt builder's comment.
+          avoid: rawTitles.map((t) => t.title),
+        }),
         'SeoTitlesBatch',
         (raw) => TitleBatchSchema.parse(raw),
         { temperature: ctx.config.llm.temperature },
@@ -92,23 +99,34 @@ export const createSeoStage = (): Stage => ({
     )
 
     // An over-long title is unusable, so discard rather than truncate: a title cut mid-word
-    // scores badly for the very reasons it was scored on.
-    const usable: TitleCandidate[] = rawTitles
-      .filter((t) => t.title.length <= MAX_TITLE_CHARS)
-      .slice(0, REQUIRED_TITLES)
-      .map((t) => ({
+    // scores badly for the very reasons it was scored on. Deduped by normalized text on top of
+    // that: the four batch calls are otherwise independent with no shared state between them,
+    // so a near-greedy model can (and, confirmed against a real run, does) return the same
+    // handful of titles across every batch. Without this, `usable.length` still hits 20 while
+    // most of those 20 slots hold copies of the same few titles — `.length(20)` on the schema
+    // cannot catch that, only counting DISTINCT titles can.
+    const seenTitles = new Set<string>()
+    const usable: TitleCandidate[] = []
+    for (const t of rawTitles) {
+      if (t.title.length > MAX_TITLE_CHARS) continue
+      const normalized = t.title.trim().toLowerCase()
+      if (seenTitles.has(normalized)) continue
+      seenTitles.add(normalized)
+      usable.push({
         title: t.title,
         scores: t.scores,
         total: t.scores.curiosity + t.scores.searchIntent + t.scores.simplicity + t.scores.ctr,
-      }))
+      })
+      if (usable.length === REQUIRED_TITLES) break
+    }
 
     if (usable.length < REQUIRED_TITLES) {
       // THROW, do not halt. This is the last of six stages: halting would discard a finished,
       // fact-checked script because the model was stingy with titles — the one thing here that
       // is cheap to re-ask for. Throwing lets the stage's own retry budget apply.
       throw new Error(
-        `only ${usable.length} of ${rawTitles.length} titles were usable (need ${REQUIRED_TITLES}); ` +
-          `titles over ${MAX_TITLE_CHARS} characters were discarded`,
+        `only ${usable.length} distinct usable titles were produced from ${rawTitles.length} raw titles ` +
+          `(need ${REQUIRED_TITLES}); titles over ${MAX_TITLE_CHARS} characters and duplicates were discarded`,
       )
     }
 

@@ -68,6 +68,17 @@ describe('buildSeoTitlesPrompt', () => {
     const prompt = buildSeoTitlesPrompt({ topicTitle: 'T', angle: 'A', count: 5 })
     expect(prompt).toContain(String(MAX_TITLE_CHARS))
   })
+
+  it('lists titles to avoid when some were already generated', () => {
+    const prompt = buildSeoTitlesPrompt({ topicTitle: 'T', angle: 'A', count: 5, avoid: ['First title', 'Second title'] })
+    expect(prompt).toContain('First title')
+    expect(prompt).toContain('Second title')
+  })
+
+  it('says nothing about avoiding titles on the first batch', () => {
+    const prompt = buildSeoTitlesPrompt({ topicTitle: 'T', angle: 'A', count: 5, avoid: [] })
+    expect(prompt).not.toContain('Do not repeat')
+  })
 })
 
 describe('buildSeoMetadataPrompt', () => {
@@ -152,6 +163,57 @@ describe('createSeoStage', () => {
 
     const seo = await h.ctx.artifacts.read('seo', SeoSchema)
     expect(seo.description.length).toBeLessThanOrEqual(5000)
+  })
+
+  it('throws when the same titles come back on every batch, rather than counting duplicates as usable', async () => {
+    // Reproduces the exact failure: the four batch calls are independent, so a near-greedy
+    // model can return its five best titles again on every batch. 4 batches x 5 identical
+    // titles = 20 raw entries but only 5 DISTINCT ones — nowhere near enough.
+    h.providers.llm.json = (async (_prompt: string, schemaName: string) => {
+      if (schemaName === 'SeoTitlesBatch') return { titles: titleBatch(5, 0) } // same 5 every time
+      return defaultMetadata
+    }) as RunContext['providers']['llm']['json']
+
+    await expect(createSeoStage().run(h.ctx)).rejects.toThrow(/5 distinct.*need 20/is)
+    await expect(h.ctx.artifacts.exists('seo')).resolves.toBe(false)
+  })
+
+  it('is not fooled by a title repeated with different casing or surrounding whitespace', async () => {
+    h.providers.llm.json = (async (_prompt: string, schemaName: string) => {
+      if (schemaName === 'SeoTitlesBatch') {
+        return {
+          titles: [
+            { title: 'A Title About Venus', scores: { curiosity: 5, searchIntent: 5, simplicity: 5, ctr: 5 } },
+            { title: '  a title about venus  ', scores: { curiosity: 5, searchIntent: 5, simplicity: 5, ctr: 5 } },
+            { title: 'A TITLE ABOUT VENUS', scores: { curiosity: 5, searchIntent: 5, simplicity: 5, ctr: 5 } },
+          ],
+        }
+      }
+      return defaultMetadata
+    }) as RunContext['providers']['llm']['json']
+
+    await expect(createSeoStage().run(h.ctx)).rejects.toThrow(/1 distinct/)
+  })
+
+  it('passes previously generated titles as the avoid list on later batch calls', async () => {
+    const avoidLists: (string[] | undefined)[] = []
+    h.providers.llm.json = (async (prompt: string, schemaName: string) => {
+      if (schemaName === 'SeoTitlesBatch') {
+        // Extract via the mock's own knowledge of what was requested is fragile; instead assert
+        // through the prompt text, the same surface the real provider call site uses.
+        avoidLists.push(prompt.includes('Do not repeat') ? ['present'] : undefined)
+        const startIndex = avoidLists.length * 5 - 5
+        return { titles: titleBatch(5, startIndex) }
+      }
+      return defaultMetadata
+    }) as RunContext['providers']['llm']['json']
+
+    await createSeoStage().run(h.ctx)
+
+    expect(avoidLists[0]).toBeUndefined() // first batch: nothing generated yet
+    expect(avoidLists[1]).toEqual(['present']) // later batches: avoid list is present
+    expect(avoidLists[2]).toEqual(['present'])
+    expect(avoidLists[3]).toEqual(['present'])
   })
 
   it('throws rather than halting when fewer than twenty usable titles survive', async () => {

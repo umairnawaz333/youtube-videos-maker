@@ -10,6 +10,13 @@ export const buildSeoTitlesPrompt = (input: {
   topicTitle: string
   angle: string
   count: number
+  /**
+   * Titles already accepted from an earlier batch in the same run. Passed back in so a later
+   * batch call is nudged away from repeating them — a near-greedy model otherwise tends to
+   * return its handful of best titles again on every batch, which the stage still has to
+   * de-duplicate and, if too many, retry for.
+   */
+  avoid?: string[]
 }): string => `Write ${input.count} YouTube title candidates for this video.
 
 Subject: ${input.topicTitle}
@@ -24,7 +31,11 @@ descriptive one. Score each from 0 to 10 on:
 
 Every title must be at most ${MAX_TITLE_CHARS} characters. Do not use ALL CAPS or clickbait that
 the video does not deliver on.
-
+${
+  input.avoid && input.avoid.length > 0
+    ? `\nDo not repeat, or write a close variant of, any of these titles already used:\n${input.avoid.map((t) => `- ${t}`).join('\n')}\n`
+    : ''
+}
 Respond with JSON only:
 { "titles": [ { "title": "<text>", "scores": { "curiosity": 0, "searchIntent": 0, "simplicity": 0, "ctr": 0 } } ] }
 

@@ -52,8 +52,6 @@ describe('the LLM block against a real local model', () => {
       onLog: (e) => console.log(`  [${e.level}] ${e.message}`),
     })
 
-    // A halt is a legitimate outcome (an ungrounded script SHOULD stop the run), so assert on
-    // what was produced rather than only on the status.
     console.log(`run finished: ${result.status}${result.reason ? ` — ${result.reason}` : ''}`)
 
     const artifacts = new FileArtifactStore(runPaths(storageRoot, 'run-integration'))
@@ -63,26 +61,30 @@ describe('the LLM block against a real local model', () => {
     expect(topic.angle.length).toBeGreaterThan(10)
     console.log(`topic: ${topic.title} (${topic.total}/40) — ${topic.angle}`)
 
-    // A halt as early as researcher (no facts found for any entity) is a legitimate outcome
-    // too, and leaves no script.json behind — script-writer never got a chance to run. Only
-    // assert on the script's shape when one was actually produced.
-    const wroteScript = await artifacts.exists('script')
-    if (wroteScript) {
-      const script = await artifacts.read('script', ScriptSchema)
-      expect(script.sections.map((s) => s.kind)).toEqual([...SECTION_KINDS])
-      const beats = script.sections.flatMap((s) => s.beats)
-      expect(beats.every((b) => b.targetSeconds >= 15 && b.targetSeconds <= 30)).toBe(true)
-      console.log(`script: ${beats.length} beats, ~${beats.reduce((a, b) => a + b.targetSeconds, 0)}s`)
-      console.log(`hook: ${script.sections[0]!.beats[0]!.text}`)
-    }
+    // The success path is mandatory, not merely one of several acceptable outcomes: this test's
+    // whole point is to prove the six-stage LLM block actually runs end to end against a real
+    // model. A halt or a retry-exhausted failure is a real finding about the prompts or the
+    // model, never something to quietly tolerate — so it fails the test loudly here, naming
+    // which stage stopped and why, rather than skipping the assertions that would have caught it.
+    expect(
+      result.status,
+      `run did not reach awaiting_review — stopped at stage '${result.stoppedAt}' with status ` +
+        `'${result.status}': ${result.reason ?? '(no reason given)'}`,
+    ).toBe('awaiting_review')
 
-    if (result.status !== 'failed') {
-      const scenes = await artifacts.read('scenes', ScenePlanSchema)
-      expect(scenes.scenes.length).toBeGreaterThan(0)
-      const seo = await artifacts.read('seo', SeoSchema)
-      expect(seo.titles).toHaveLength(20)
-      expect(seo.titles.some((t) => t.title === seo.chosenTitle)).toBe(true)
-      console.log(`chosen title: ${seo.chosenTitle}`)
-    }
+    const script = await artifacts.read('script', ScriptSchema)
+    expect(script.sections.map((s) => s.kind)).toEqual([...SECTION_KINDS])
+    const beats = script.sections.flatMap((s) => s.beats)
+    expect(beats.every((b) => b.targetSeconds >= 15 && b.targetSeconds <= 30)).toBe(true)
+    console.log(`script: ${beats.length} beats, ~${beats.reduce((a, b) => a + b.targetSeconds, 0)}s`)
+    console.log(`hook: ${script.sections[0]!.beats[0]!.text}`)
+
+    const scenes = await artifacts.read('scenes', ScenePlanSchema)
+    expect(scenes.scenes.length).toBeGreaterThan(0)
+
+    const seo = await artifacts.read('seo', SeoSchema)
+    expect(seo.titles).toHaveLength(20)
+    expect(seo.titles.some((t) => t.title === seo.chosenTitle)).toBe(true)
+    console.log(`chosen title: ${seo.chosenTitle}`)
   })
 })

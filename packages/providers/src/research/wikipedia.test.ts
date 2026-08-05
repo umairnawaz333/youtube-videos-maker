@@ -128,6 +128,47 @@ describe('WikipediaResearchProvider', () => {
     expect(requested.some((u) => u.includes('/search/page'))).toBe(true)
   })
 
+  it('logs a successful search substitution, naming both the query and the page it resolved to', async () => {
+    // A successful substitution was previously silent — only a failed search logged anything —
+    // so a hallucinated entity name could fuzzy-resolve to an unrelated real page with nothing
+    // in the log to say it happened.
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/search/page')) return jsonResponse({ pages: [{ title: 'Spacecraft propulsion' }] })
+      if (url.includes('Spacecraft_propulsion')) {
+        return jsonResponse({
+          title: 'Spacecraft propulsion',
+          extract: 'Spacecraft propulsion is any method used to accelerate spacecraft.',
+          content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Spacecraft_propulsion' } },
+        })
+      }
+      return new Response('', { status: 404 })
+    }) as unknown as typeof fetch
+    const logged: string[] = []
+
+    await new WikipediaResearchProvider({ fetchImpl, log: (m) => logged.push(m) }).lookup(
+      'Rocket Propulsion Systems',
+    )
+
+    const substitutionLog = logged.find((m) => m.includes('resolved'))
+    expect(substitutionLog).toContain('Rocket Propulsion Systems')
+    expect(substitutionLog).toContain('Spacecraft propulsion')
+  })
+
+  it('does not log a substitution when the exact title already succeeded', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        title: 'Venus',
+        extract: 'Venus is the second planet from the Sun.',
+        content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Venus' } },
+      }),
+    ) as unknown as typeof fetch
+    const logged: string[] = []
+
+    await new WikipediaResearchProvider({ fetchImpl, log: (m) => logged.push(m) }).lookup('Venus')
+
+    expect(logged.some((m) => m.includes('resolved'))).toBe(false)
+  })
+
   it('returns empty when the search endpoint itself finds nothing', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/search/page')) return jsonResponse({ pages: [] })

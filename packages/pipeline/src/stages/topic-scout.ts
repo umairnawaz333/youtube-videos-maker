@@ -105,6 +105,16 @@ export const createTopicScoutStage = (): Stage => ({
       }
     }
 
+    if (ctx.config.llm.topicScoutMaxCandidates < sources.length) {
+      // Round-robin picks one candidate per source per pass, so a cap below the number of
+      // configured sources silently drops the tail sources' candidates entirely rather than
+      // merely trimming each source's list.
+      ctx.log.warn(
+        `topicScoutMaxCandidates (${ctx.config.llm.topicScoutMaxCandidates}) is below the ` +
+          `${sources.length} configured trend sources; some sources' candidates will never reach the model`,
+      )
+    }
+
     const offeredList = selectCandidatesForScoring(fresh, ctx.config.llm.topicScoutMaxCandidates)
     if (offeredList.length < fresh.length) {
       ctx.log.info(

@@ -102,7 +102,14 @@ export class WikipediaResearchProvider implements ResearchProvider {
       const found = await this.searchTitle(resolvedQuery)
       if (found) {
         body = await this.fetchSummary(found)
-        if (body) resolvedQuery = found
+        if (body) {
+          // A successful substitution is otherwise silent — only a failed search or fetch
+          // logs anything — and the researcher above only logs the model's original entity
+          // name, not the page actually read. Without this, grounding facts can enter
+          // research.facts from a page nobody can trace back to what the model asked for.
+          this.log?.(`resolved "${resolvedQuery}" to Wikipedia page "${found}" via search`)
+          resolvedQuery = found
+        }
       }
     }
 

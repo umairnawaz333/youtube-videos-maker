@@ -53,6 +53,14 @@ describe('AppConfigSchema', () => {
     }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
+
+  it('rejects a topic-scout candidate cap below 5, which could silently drop whole sources', () => {
+    const bad = {
+      ...DEFAULT_APP_CONFIG,
+      llm: { ...DEFAULT_APP_CONFIG.llm, topicScoutMaxCandidates: 4 },
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
 })
 
 describe('NicheConfigSchema', () => {

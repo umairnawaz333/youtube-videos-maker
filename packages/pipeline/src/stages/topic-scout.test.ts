@@ -128,6 +128,37 @@ describe('createTopicScoutStage', () => {
     expect(outcome).toMatchObject({ status: 'halted' })
   })
 
+  it('warns when the candidate cap is below the number of configured trend sources', async () => {
+    // The harness niche configures two sources ('wikipedia-top', 'arxiv'); a cap of 1 means
+    // round-robin selection can never reach the second source's candidates at all.
+    // Replaced rather than mutated in place: `config.llm` is the same object reference as
+    // `DEFAULT_APP_CONFIG.llm` (a shallow spread), so mutating it would leak into every other
+    // test in this file that reads the default cap.
+    h.ctx.config = { ...h.ctx.config, llm: { ...h.ctx.config.llm, topicScoutMaxCandidates: 1 } }
+    h.providers.trend.fetchCandidates = async () => candidates('A', 'B')
+    h.providers.llm.json = (async () => ({
+      candidates: [{ key: 'key-0', title: 'A', scores: { curiosity: 5, explainability: 5, visualPotential: 5, evergreen: 5 }, total: 20 }],
+      chosen: { key: 'key-0', angle: 'An angle.' },
+    })) as RunContext['providers']['llm']['json']
+
+    await createTopicScoutStage().run(h.ctx)
+
+    const warning = h.logs.find((l) => l.level === 'warn')
+    expect(warning?.message).toMatch(/topicScoutMaxCandidates.*below.*2 configured/i)
+  })
+
+  it('does not warn when the candidate cap covers every configured source', async () => {
+    h.providers.trend.fetchCandidates = async () => candidates('A', 'B')
+    h.providers.llm.json = (async () => ({
+      candidates: [{ key: 'key-0', title: 'A', scores: { curiosity: 5, explainability: 5, visualPotential: 5, evergreen: 5 }, total: 20 }],
+      chosen: { key: 'key-0', angle: 'An angle.' },
+    })) as RunContext['providers']['llm']['json']
+
+    await createTopicScoutStage().run(h.ctx)
+
+    expect(h.logs.some((l) => l.level === 'warn')).toBe(false)
+  })
+
   it('falls back to a generic angle, not the model\'s mismatched one, when chosenKey was never offered', async () => {
     // Reproduces the shape of a real qwen3:8b failure: the model can write a coherent-looking
     // chosen.angle that is actually about a candidate other than the one it names by key. This

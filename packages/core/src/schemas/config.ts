@@ -66,8 +66,14 @@ export const LlmConfigSchema = z.object({
    * call. A real run against the unfiltered ~45-candidate default produced zero usable
    * responses in ~15 attempts; capping (with source diversity preserved) keeps the prompt
    * small enough for an 8B model to actually perform the scoring task.
+   *
+   * Floor of 5 (rather than merely positive): `selectCandidatesForScoring` round-robins one
+   * candidate per source per pass, so a cap lower than the number of configured trend sources
+   * silently drops the tail sources' candidates from the model's view entirely. Five covers
+   * every source combination any niche configures today (`TREND_SOURCES` has six total
+   * entries, but no niche config currently lists more than two).
    */
-  topicScoutMaxCandidates: z.number().int().positive(),
+  topicScoutMaxCandidates: z.number().int().min(5),
 })
 export type LlmConfig = z.infer<typeof LlmConfigSchema>
 
