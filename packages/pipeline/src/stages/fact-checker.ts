@@ -15,7 +15,12 @@ const ClaimsSchema = z.object({
       z.object({
         text: z.string().min(1),
         verdict: z.enum(['supported', 'unsupported', 'contradicted']),
-        sourceUrl: z.string().url().optional(),
+        // Not `.url()` — see FactCheckSchema's comment. The model is never given a per-fact
+        // sourceUrl to copy (only the fact's text), so it cannot reliably produce a
+        // well-formed one; requiring strict URL format here burned the stage's whole retry
+        // budget rejecting otherwise-correct claim batches over this cosmetic field alone,
+        // confirmed against a real run.
+        sourceUrl: z.string().min(1).optional(),
       }),
     )
     .min(1),

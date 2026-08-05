@@ -93,7 +93,14 @@ export const FactCheckSchema = z.object({
       z.object({
         text: z.string().min(1),
         verdict: z.enum(['supported', 'unsupported', 'contradicted']),
-        sourceUrl: z.string().url().optional(),
+        // Not `.url()`: the fact-checker prompt gives the model each fact's *text* only, never
+        // its sourceUrl (see ResearchSchema), so the model has no real citation to copy and can
+        // only approximate one. Confirmed against a real run: requiring strict URL formatting
+        // here discarded an otherwise fully-scored, valid batch of claims on ~3 of every 3
+        // retry attempts purely because a handful of this cosmetic, unused-downstream field's
+        // values weren't well-formed URLs — burning the stage's entire retry budget on
+        // formatting noise unrelated to any actual grounding verdict.
+        sourceUrl: z.string().min(1).optional(),
       }),
     )
     .min(1),

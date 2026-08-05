@@ -92,6 +92,27 @@ describe('createFactCheckerStage', () => {
     await expect(h.ctx.artifacts.exists('factcheck')).resolves.toBe(true)
   })
 
+  it('accepts a claim whose sourceUrl is not a well-formed URL, rather than discarding the whole batch', async () => {
+    // Reproduces a real qwen3:8b run: the model is only ever given each fact's *text*, never
+    // its sourceUrl (see ResearchSchema), so it has no real citation to copy for a "supported"
+    // claim and can only approximate one. Requiring strict `.url()` formatting here burned the
+    // stage's entire retry budget rejecting an otherwise fully-scored, valid batch of claims —
+    // 3 attempts of 3 stage retries each, all discarded over this cosmetic field alone.
+    h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>
+      parse({
+        claims: [
+          { text: 'A supported claim.', verdict: 'supported', sourceUrl: 'NASA, official site' },
+          { text: 'Another supported claim.', verdict: 'supported', sourceUrl: 'nasa.gov' },
+        ],
+      })) as RunContext['providers']['llm']['json']
+
+    await expect(createFactCheckerStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
+
+    const report = await h.ctx.artifacts.read('factcheck', FactCheckSchema)
+    expect(report.claims).toHaveLength(2)
+    expect(report.failureRatio).toBe(0)
+  })
+
   it('accepts a ratio exactly at the threshold rather than halting on it', async () => {
     // 17 supported, 3 failed = 0.15 exactly. The rule is "more than 15%".
     h.providers.llm.json = (async (_p: string, _n: string, parse: (raw: unknown) => unknown) =>

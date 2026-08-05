@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS, TopicSchema } from '@yt/core'
+import { FactCheckSchema, ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS, TopicSchema } from '@yt/core'
 
 const beat = (seconds: number) => ({ id: 'b1', text: 'Narration line.', targetSeconds: seconds })
 
@@ -176,5 +176,48 @@ describe('TopicSchema', () => {
 
   it('rejects an empty key, because the key is the permanent dedupe identity', () => {
     expect(TopicSchema.safeParse(topic({ key: '' })).success).toBe(false)
+  })
+})
+
+describe('FactCheckSchema', () => {
+  const report = (overrides: Record<string, unknown> = {}) => ({
+    claims: [{ text: 'A claim.', verdict: 'supported' }],
+    failureRatio: 0,
+    ...overrides,
+  })
+
+  it('accepts a well-formed report', () => {
+    expect(FactCheckSchema.safeParse(report()).success).toBe(true)
+  })
+
+  it('accepts a claim with no sourceUrl at all', () => {
+    expect(FactCheckSchema.safeParse(report()).success).toBe(true)
+  })
+
+  it('accepts a sourceUrl that is not a well-formed URL', () => {
+    // The fact-checker prompt never gives the model a per-fact sourceUrl to copy (only the
+    // fact's text), so it cannot reliably produce a well-formed URL for a "supported" claim.
+    // Confirmed against a real run: requiring `.url()` format here discarded an otherwise
+    // fully-scored, valid batch of claims purely over this cosmetic field.
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'NASA, official site' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(true)
+  })
+
+  it('rejects an empty sourceUrl string', () => {
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: '' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
+  })
+
+  it('rejects an unknown verdict', () => {
+    const claims = [{ text: 'A claim.', verdict: 'maybe' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
+  })
+
+  it('rejects a failureRatio outside 0-1', () => {
+    expect(FactCheckSchema.safeParse(report({ failureRatio: 1.5 })).success).toBe(false)
+  })
+
+  it('rejects an empty claims array', () => {
+    expect(FactCheckSchema.safeParse(report({ claims: [] })).success).toBe(false)
   })
 })
