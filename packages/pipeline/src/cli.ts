@@ -1,7 +1,8 @@
 import path from 'node:path'
-import type { AppConfig, ProviderBundle, RunContext, Stage } from '@yt/core'
+import type { AppConfig, Clock, ProviderBundle, RunContext, Stage } from '@yt/core'
 import { createRepositories, createPrismaClient, type Repositories } from '@yt/db'
-import { createFakeProviders, FixedClock } from '@yt/providers'
+import { createFakeProviders } from '@yt/providers'
+import { SystemClock } from './clock'
 import { loadConfig } from './config/load'
 import {
   buildDefaultChecks,
@@ -27,12 +28,13 @@ export interface RunPipelineOptions {
   stages?: Stage[]
   providers?: ProviderBundle
   onLog?: (entry: LogEntry) => void
-  nowIso?: string
+  /** Defaults to SystemClock. Tests pass a FixedClock for determinism. */
+  clock?: Clock
 }
 
 export const runPipeline = async (opts: RunPipelineOptions): Promise<RunResult> => {
   const config = await loadConfig({ configDir: opts.configDir, request: opts.request })
-  const clock = new FixedClock(opts.nowIso ?? '2026-08-01T10:00:00.000Z')
+  const clock = opts.clock ?? new SystemClock()
 
   const existing = await opts.repos.runs.get(opts.runId)
   if (!existing) {
