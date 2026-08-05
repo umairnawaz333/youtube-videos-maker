@@ -33,6 +33,34 @@ describe('AppConfigSchema', () => {
     }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
+
+  it('defaults to a low sampling temperature and a capped topic-scout candidate list', () => {
+    expect(DEFAULT_APP_CONFIG.llm).toMatchObject({
+      temperature: 0.2,
+      topicScoutMaxCandidates: 15,
+    })
+  })
+
+  it('rejects a temperature outside the 0-2 range Ollama accepts', () => {
+    const bad = { ...DEFAULT_APP_CONFIG, llm: { ...DEFAULT_APP_CONFIG.llm, temperature: 3 } }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a non-positive topic-scout candidate cap', () => {
+    const bad = {
+      ...DEFAULT_APP_CONFIG,
+      llm: { ...DEFAULT_APP_CONFIG.llm, topicScoutMaxCandidates: 0 },
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a topic-scout candidate cap below 5, which could silently drop whole sources', () => {
+    const bad = {
+      ...DEFAULT_APP_CONFIG,
+      llm: { ...DEFAULT_APP_CONFIG.llm, topicScoutMaxCandidates: 4 },
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
 })
 
 describe('NicheConfigSchema', () => {

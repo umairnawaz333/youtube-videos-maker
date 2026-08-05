@@ -17,7 +17,12 @@ export const STAGE_NAMES = [
 
 export type StageName = (typeof STAGE_NAMES)[number]
 
-export type ModelRequirement = 'llm' | 'sd' | 'none'
+/**
+ * 'exclusive' means "evict whatever is resident before me — I need the memory to
+ * myself". It is how the render and narration block force the image model out; without
+ * it an 8 GB image model would still be resident when a headless browser starts.
+ */
+export type ModelRequirement = 'llm' | 'sd' | 'none' | 'exclusive'
 
 /**
  * Grouped so the ModelBroker performs two evictions per run rather than twelve.
@@ -32,10 +37,10 @@ export const STAGE_REQUIREMENTS: Record<StageName, ModelRequirement> = {
   seo: 'llm',
   illustrator: 'sd',
   thumbnailer: 'sd',
-  narrator: 'none',
+  narrator: 'exclusive',
   captioner: 'none',
   'clip-gate': 'none',
-  editor: 'none',
+  editor: 'exclusive',
   'quality-gate': 'none',
   publisher: 'none',
 }

@@ -1,7 +1,23 @@
 import path from 'node:path'
-import type { AppConfig, ProviderBundle, RunContext, Stage } from '@yt/core'
+import type {
+  AppConfig,
+  Clock,
+  LlmProvider,
+  ProviderBundle,
+  ResearchProvider,
+  RunContext,
+  Stage,
+  TrendProvider,
+} from '@yt/core'
 import { createRepositories, createPrismaClient, type Repositories } from '@yt/db'
-import { createFakeProviders, FixedClock } from '@yt/providers'
+import {
+  createFakeProviders,
+  createHttpOllamaClient,
+  HttpTrendProvider,
+  OllamaLlmProvider,
+  WikipediaResearchProvider,
+} from '@yt/providers'
+import { SystemClock } from './clock'
 import { loadConfig } from './config/load'
 import {
   buildDefaultChecks,
@@ -11,6 +27,7 @@ import {
 } from './doctor'
 import { EventRunLogger, type LogEntry } from './logger'
 import { ModelBroker, type Evictable } from './model-broker'
+import { buildLlmStages } from './stages'
 import { StageRunner, type RunResult } from './stage-runner'
 import { FileArtifactStore } from './storage/artifacts'
 import { ensureRunDirs, runPaths } from './storage/paths'
@@ -26,13 +43,18 @@ export interface RunPipelineOptions {
   useFakes?: boolean
   stages?: Stage[]
   providers?: ProviderBundle
+  /** Override individual providers while keeping fakes for the rest. Used by the integration suite. */
+  llm?: LlmProvider
+  trend?: TrendProvider
+  research?: ResearchProvider
   onLog?: (entry: LogEntry) => void
-  nowIso?: string
+  /** Defaults to SystemClock. Tests pass a FixedClock for determinism. */
+  clock?: Clock
 }
 
 export const runPipeline = async (opts: RunPipelineOptions): Promise<RunResult> => {
   const config = await loadConfig({ configDir: opts.configDir, request: opts.request })
-  const clock = new FixedClock(opts.nowIso ?? '2026-08-01T10:00:00.000Z')
+  const clock = opts.clock ?? new SystemClock()
 
   const existing = await opts.repos.runs.get(opts.runId)
   if (!existing) {
@@ -49,25 +71,33 @@ export const runPipeline = async (opts: RunPipelineOptions): Promise<RunResult> 
 
   // useFakes must be explicit: silently falling back to fakes would let a misconfigured
   // real run produce a fake video that looks genuine.
-  if (!opts.providers && !opts.useFakes) {
+  if (!opts.providers && !opts.useFakes && !opts.llm && !opts.trend && !opts.research) {
     throw new Error(
-      'runPipeline requires `providers`, or `useFakes: true` until Plan 2 wires real adapters',
+      'runPipeline requires `providers` (optionally with individual `llm`/`trend`/`research` ' +
+        'overrides), or `useFakes: true` until Plan 2 wires real adapters',
     )
   }
 
-  // useFakes and explicit providers/stages are mutually exclusive. Mixing them would let
-  // real stages run against fake providers — a video assembled from a one-pixel PNG and a
+  // useFakes and explicit providers/stages/overrides are mutually exclusive. Mixing them would
+  // let real stages run against fake providers — a video assembled from a one-pixel PNG and a
   // sine-wave WAV, reported as a genuine finished run with nothing to flag it as fake.
-  if (opts.useFakes && (opts.providers || opts.stages)) {
+  if (opts.useFakes && (opts.providers || opts.stages || opts.llm || opts.trend || opts.research)) {
     throw new Error(
-      'runPipeline: `useFakes` cannot be combined with explicit `providers` or `stages` — ' +
-        'doing so would let real stages run against fake providers and silently report a ' +
-        'fake video as a genuine finished run. Pass `useFakes: true` alone for an all-fake ' +
-        'smoke run, or pass your own `providers`/`stages` without `useFakes`.',
+      'runPipeline: `useFakes` cannot be combined with explicit `providers`, `stages`, or ' +
+        'individual provider overrides (`llm`/`trend`/`research`) — doing so would let real ' +
+        'stages run against fake providers and silently report a fake video as a genuine ' +
+        'finished run. Pass `useFakes: true` alone for an all-fake smoke run, or pass your own ' +
+        '`providers`/`stages`/overrides without `useFakes`.',
     )
   }
 
-  const providers = opts.providers ?? createFakeProviders()
+  const suppliedProviders = opts.providers ?? createFakeProviders()
+  const providers: ProviderBundle = {
+    ...suppliedProviders,
+    ...(opts.llm ? { llm: opts.llm } : {}),
+    ...(opts.trend ? { trend: opts.trend } : {}),
+    ...(opts.research ? { research: opts.research } : {}),
+  }
   const stages = opts.stages ?? buildNoopStages()
 
   // The broker owns eviction; providers expose unload, never called by a stage.
@@ -119,6 +149,29 @@ const main = async () => {
   }
 
   if (verb === 'run') {
+    const host = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434'
+    const model = process.env.LLM_MODEL ?? 'qwen3:8b'
+    const llm = new OllamaLlmProvider({
+      client: createHttpOllamaClient({ host }),
+      model,
+      log: (message) => console.log(`[llm] ${message}`),
+    })
+
+    // The provider does not start a server, so a run with nothing listening would fail six
+    // stages in a row with a connection error. Check up front so the operator gets one clear
+    // message instead of debugging what looks like a broken stage.
+    try {
+      await llm.complete('Reply with OK')
+    } catch (error) {
+      console.error(
+        `pipeline CLI failed: the model server at ${host} is unreachable ` +
+          `(${error instanceof Error ? error.message : String(error)}). ` +
+          "Run 'pnpm ollama:serve' to start it.",
+      )
+      process.exitCode = 1
+      return
+    }
+
     const databaseUrl = process.env.DATABASE_URL ?? `file:${path.join(repoRoot, 'storage/factory.db')}`
     const prisma = createPrismaClient(databaseUrl)
     const runId = process.argv[3] ?? `run-${process.pid}`
@@ -133,7 +186,13 @@ const main = async () => {
         repos: createRepositories(prisma),
         configDir: path.join(repoRoot, 'config'),
         storageRoot: process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage'),
-        useFakes: true,
+        // Real stages need real providers. Everything the LLM block does not touch stays fake
+        // until the plans that implement it land.
+        providers: createFakeProviders(),
+        stages: buildLlmStages(),
+        llm,
+        trend: new HttpTrendProvider({ log: (m) => console.log(`[trend] ${m}`) }),
+        research: new WikipediaResearchProvider({ log: (m) => console.log(`[research] ${m}`) }),
         onLog: (entry) => console.log(`[${entry.level}] ${entry.message}`),
       })
 

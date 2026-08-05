@@ -19,5 +19,15 @@
     "waitTimeoutHours": 72
   },
   "brandCorner": { "enabled": true, "position": "bottom-right" },
-  "retries": { "llm": 3, "network": 3, "render": 1, "local": 1 }
+  "retries": {
+    "llm": 3,
+    "network": 3,
+    "render": 1,
+    "local": 1,
+    "backoffMs": { "llm": 500, "network": 2000, "render": 0, "local": 0 }
+  },
+  "llm": {
+    "temperature": 0.2,
+    "topicScoutMaxCandidates": 15
+  }
 }

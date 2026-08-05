@@ -5,7 +5,7 @@
   "voice": "male",
   "styleSuffix": "cinematic astrophotography, deep blacks, volumetric nebula light, hard rim lighting",
   "music": "ambient-drone",
-  "trendSources": ["wikipedia-top", "arxiv"],
+  "trendSources": ["nasa", "wikipedia-top"],
   "seoRules": "Lead with the object, not the concept. Numbers in titles earn clicks here.",
   "monetizationRisk": "low"
 }

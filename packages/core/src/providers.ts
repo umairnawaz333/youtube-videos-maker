@@ -12,7 +12,12 @@ export interface LlmProvider {
    * Completion constrained to a JSON shape. The adapter is responsible for retrying
    * until the response parses, so stages never see malformed JSON.
    */
-  json<T>(prompt: string, schemaName: string, parse: (raw: unknown) => T): Promise<T>
+  json<T>(
+    prompt: string,
+    schemaName: string,
+    parse: (raw: unknown) => T,
+    opts?: { temperature?: number; maxTokens?: number },
+  ): Promise<T>
   /** Releases model memory. Called by the ModelBroker, never by a stage. */
   unload(): Promise<void>
 }
@@ -104,6 +109,16 @@ export interface TrendProvider {
   fetchCandidates(sources: readonly TrendSource[]): Promise<TopicCandidate[]>
 }
 
+export interface ResearchFact {
+  text: string
+  sourceUrl: string
+}
+
+export interface ResearchProvider {
+  /** Returns grounding facts with their sources. An empty array means nothing was found. */
+  lookup(query: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]>
+}
+
 export interface ProviderBundle {
   llm: LlmProvider
   tts: TtsProvider
@@ -112,6 +127,7 @@ export interface ProviderBundle {
   caption: CaptionProvider
   publish: PublishProvider
   trend: TrendProvider
+  research: ResearchProvider
 }
 
 /**
@@ -133,5 +149,6 @@ export const PROVIDER_TOKENS = {
   caption: 'CAPTION_PROVIDER',
   publish: 'PUBLISH_PROVIDER',
   trend: 'TREND_PROVIDER',
+  research: 'RESEARCH_PROVIDER',
   clock: 'CLOCK',
 } as const

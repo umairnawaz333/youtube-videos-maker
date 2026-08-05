@@ -49,6 +49,7 @@ const runner = (stages: ReturnType<typeof fakeStage>[]) =>
     broker,
     repos,
     clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+    sleep: async () => {},
   })
 
 beforeEach(async () => {
@@ -231,6 +232,7 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
 
     const execution = flakyRunner.execute(context())
@@ -252,7 +254,15 @@ describe('StageRunner', () => {
   // failing unload()), and a throw from `finally` replaces whatever the `try` block
   // already returned — so execute() must catch that rejection, log it, and still
   // resolve with the RunResult it had already computed.
-  it('resolves with awaiting_review and logs an error when evictAll fails after an otherwise successful run', async () => {
+  // Amendment (Task 1): narrator is now 'exclusive', so sd is evicted at narrator, not
+  // by the final evictAll() — no stage in a full run reaches evictAll() with a heavy
+  // model still resident. A persistently-failing unload() therefore surfaces as a
+  // narrator stage failure (it exhausts its retry budget) rather than as a cleanup-only
+  // failure on an otherwise-successful run. The intent this test guards — that a
+  // rejecting unload() during cleanup is caught, logged, and never escapes execute() as
+  // a thrown rejection — still holds: the finally block's own evictAll() re-attempts the
+  // same doomed eviction (current stays 'sd', fail-closed) and that failure is logged too.
+  it('resolves with a failed status when the exclusive narrator eviction rejects, and logs the cleanup failure too', async () => {
     const logs: { level: string; message: string; meta?: Record<string, unknown> }[] = []
     const flakySd: Evictable = {
       id: 'sd',
@@ -267,13 +277,15 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
     const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
 
-    // sd is only evicted by the final evictAll() (never mid-run — no stage after the
-    // sd block needs a different model), so this is a genuinely successful run whose
-    // cleanup alone fails.
-    await expect(flakyRunner.execute(ctx)).resolves.toMatchObject({ status: 'awaiting_review' })
+    const execution = flakyRunner.execute(ctx)
+    await expect(execution).resolves.toMatchObject({ status: 'failed', stoppedAt: 'narrator' })
+
+    const result = await execution
+    expect(result.reason).toContain('narrator failed')
 
     const errorLog = logs.find((l) => l.level === 'error')
     expect(errorLog?.message).toMatch(/model memory/i)
@@ -298,6 +310,7 @@ describe('StageRunner', () => {
       broker: flakyBroker,
       repos,
       clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async () => {},
     })
     const ctx = { ...context(), log: new EventRunLogger('run-1', (entry) => logs.push(entry)) } as RunContext
 
@@ -311,5 +324,76 @@ describe('StageRunner', () => {
     const errorLog = logs.find((l) => l.level === 'error')
     expect(errorLog?.message).toMatch(/model memory/i)
     expect(errorLog?.meta).toMatchObject({ resident: 'llm' })
+  })
+})
+
+describe('StageRunner stage-list validation', () => {
+  it('rejects a stage list in the wrong order', () => {
+    const reordered = [...STAGE_NAMES].reverse().map((n) => fakeStage(n))
+    expect(() => runner(reordered)).toThrow(/order/i)
+  })
+
+  it('rejects a stage list with a duplicate', () => {
+    const withDuplicate = [...STAGE_NAMES.map((n) => fakeStage(n)), fakeStage('seo')]
+    expect(() => runner(withDuplicate)).toThrow(/duplicate/i)
+  })
+
+  it('rejects a stage whose requires disagrees with the canonical map', () => {
+    const stages = STAGE_NAMES.map((n) => fakeStage(n))
+    stages[0] = { ...stages[0]!, requires: 'sd' }
+    expect(() => runner(stages)).toThrow(/requires/i)
+  })
+
+  it('accepts a leading prefix of the canonical order, so a partial pipeline is runnable', () => {
+    // This plan runs only the six LLM stages until later plans add the rest.
+    const prefix = STAGE_NAMES.slice(0, 6).map((n) => fakeStage(n))
+    expect(() => runner(prefix)).not.toThrow()
+  })
+})
+
+describe('StageRunner retry backoff', () => {
+  it('waits between attempts using the configured backoff for the stage kind', async () => {
+    const slept: number[] = []
+    const stages = STAGE_NAMES.map((n) =>
+      n === 'topic-scout' ? fakeStage(n, { failTimes: 2 }) : fakeStage(n),
+    )
+    const r = new StageRunner({
+      stages,
+      broker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+
+    const result = await r.execute(context())
+
+    expect(result.status).toBe('awaiting_review')
+    // topic-scout is a 'network' stage: 3 attempts means 2 waits, growing.
+    expect(slept).toHaveLength(2)
+    expect(slept[0]).toBe(DEFAULT_APP_CONFIG.retries.backoffMs.network)
+    expect(slept[1]).toBe(DEFAULT_APP_CONFIG.retries.backoffMs.network * 2)
+  })
+
+  it('does not wait after the final attempt', async () => {
+    const slept: number[] = []
+    const stages = STAGE_NAMES.map((n) =>
+      n === 'editor' ? fakeStage(n, { failTimes: 99 }) : fakeStage(n),
+    )
+    const r = new StageRunner({
+      stages,
+      broker,
+      repos,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+
+    await r.execute(context())
+
+    // editor is a 'render' stage with 1 attempt, so there is nothing to wait for.
+    expect(slept).toEqual([])
   })
 })

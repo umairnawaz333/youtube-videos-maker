@@ -27,10 +27,27 @@ describe('stage vocabulary', () => {
     ])
   })
 
-  it('groups model requirements so there are exactly two model swaps', () => {
+  it('forces the image model out before the small-model block begins', () => {
+    // narrator is the first stage after the SD block. Marking it exclusive is what
+    // evicts SDXL before narration, captioning and the Chromium render run.
+    expect(STAGE_REQUIREMENTS.narrator).toBe('exclusive')
+    expect(STAGE_REQUIREMENTS.editor).toBe('exclusive')
+  })
+
+  it('keeps the requirement sequence grouped so heavy models load at most once each', () => {
     const sequence = STAGE_NAMES.map((n) => STAGE_REQUIREMENTS[n])
-    const compacted = sequence.filter((req, i) => req !== sequence[i - 1])
-    expect(compacted).toEqual(['llm', 'sd', 'none'])
+    // Each heavy model appears in exactly one contiguous run.
+    for (const heavy of ['llm', 'sd'] as const) {
+      const indices = sequence.flatMap((req, i) => (req === heavy ? [i] : []))
+      expect(indices.length).toBeGreaterThan(0)
+      const contiguous = indices.every((idx, k) => k === 0 || idx === indices[k - 1]! + 1)
+      expect(contiguous, `${heavy} requirements must be contiguous`).toBe(true)
+    }
+    // No heavy requirement may appear after the first exclusive stage.
+    const firstExclusive = sequence.indexOf('exclusive')
+    expect(firstExclusive).toBeGreaterThan(0)
+    expect(sequence.slice(firstExclusive)).not.toContain('llm')
+    expect(sequence.slice(firstExclusive)).not.toContain('sd')
   })
 
   it('gives every stage a retry kind', () => {

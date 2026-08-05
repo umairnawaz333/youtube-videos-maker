@@ -1,6 +1,8 @@
-# Model weights and binaries — all downloads live in-repo but are never committed
-models/
-bin/
+# Model weights and binaries — all downloads live in-repo but are never committed.
+# No trailing slash: these may be symlinks into the main checkout when working in a
+# worktree, and a `models/` pattern matches only real directories, not symlinks.
+/models
+/bin
 
 # Per-run generated assets
 /storage/
@@ -50,3 +52,6 @@ client_secret*.json
 packages/db/generated/
 # Test databases
 storage/test-*.db
+
+# Claude Code local config and worktrees
+.claude/

@@ -7,6 +7,7 @@ export const TREND_SOURCES = [
   'arxiv',
   'reddit',
   'google-trends',
+  'nasa',
 ] as const
 export type TrendSource = (typeof TREND_SOURCES)[number]
 
@@ -39,8 +40,42 @@ export const RetryConfigSchema = z.object({
   network: z.number().int().min(1),
   render: z.number().int().min(1),
   local: z.number().int().min(1),
+  /**
+   * Base delay before a retry, doubling each attempt. Spec section 8 promises backoff for
+   * network stages; retrying a rate-limited endpoint instantly just burns the budget.
+   */
+  backoffMs: z.object({
+    llm: z.number().int().nonnegative(),
+    network: z.number().int().nonnegative(),
+    render: z.number().int().nonnegative(),
+    local: z.number().int().nonnegative(),
+  }),
 })
 export type RetryConfig = z.infer<typeof RetryConfigSchema>
+
+export const LlmConfigSchema = z.object({
+  /**
+   * Sampling temperature for every structured JSON call a stage makes. Ollama's own default
+   * (0.8) is tuned for open-ended chat, not for reliably staying inside a JSON schema — a
+   * qwen3:8b run against an unset temperature reproducibly abandoned the topic-scout task
+   * and emitted a hallucinated `{"error": ...}` refusal instead of scoring its candidates.
+   */
+  temperature: z.number().min(0).max(2),
+  /**
+   * Upper bound on how many trend candidates topic-scout puts in front of the model in one
+   * call. A real run against the unfiltered ~45-candidate default produced zero usable
+   * responses in ~15 attempts; capping (with source diversity preserved) keeps the prompt
+   * small enough for an 8B model to actually perform the scoring task.
+   *
+   * Floor of 5 (rather than merely positive): `selectCandidatesForScoring` round-robins one
+   * candidate per source per pass, so a cap lower than the number of configured trend sources
+   * silently drops the tail sources' candidates from the model's view entirely. Five covers
+   * every source combination any niche configures today (`TREND_SOURCES` has six total
+   * entries, but no niche config currently lists more than two).
+   */
+  topicScoutMaxCandidates: z.number().int().min(5),
+})
+export type LlmConfig = z.infer<typeof LlmConfigSchema>
 
 export const AppConfigSchema = z.object({
   niche: z.string().min(1),
@@ -58,6 +93,7 @@ export const AppConfigSchema = z.object({
   clips: ClipsConfigSchema,
   brandCorner: BrandCornerSchema,
   retries: RetryConfigSchema,
+  llm: LlmConfigSchema,
 })
 export type AppConfig = z.infer<typeof AppConfigSchema>
 
@@ -96,5 +132,15 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     waitTimeoutHours: 72,
   },
   brandCorner: { enabled: true, position: 'bottom-right' },
-  retries: { llm: 3, network: 3, render: 1, local: 1 },
+  retries: {
+    llm: 3,
+    network: 3,
+    render: 1,
+    local: 1,
+    backoffMs: { llm: 500, network: 2000, render: 0, local: 0 },
+  },
+  llm: {
+    temperature: 0.2,
+    topicScoutMaxCandidates: 15,
+  },
 }

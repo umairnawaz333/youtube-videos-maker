@@ -21,11 +21,13 @@ export const FORMAT_PRESETS: Record<VideoFormat, FormatPreset> = {
     width: 1080,
     height: 1920,
     fps: 30,
-    minDurationSec: 45,
-    maxDurationSec: 60,
-    minScenes: 8,
-    maxScenes: 12,
-    imageBudget: 10,
+    // 120s is the floor imposed by the eight-section arc: 8 sections x 1 beat x 15s minimum.
+    // Anything shorter cannot carry the story structure the schema enforces.
+    minDurationSec: 120,
+    maxDurationSec: 180,
+    minScenes: 12,
+    maxScenes: 30,
+    imageBudget: 22,
     clipBudget: 2,
   },
   long: {

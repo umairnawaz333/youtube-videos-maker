@@ -39,7 +39,8 @@ describe('runPipeline useFakes guards', () => {
         stages: buildNoopStages(),
       }),
     ).rejects.toThrow(
-      'runPipeline: `useFakes` cannot be combined with explicit `providers` or `stages`',
+      'runPipeline: `useFakes` cannot be combined with explicit `providers`, `stages`, or ' +
+        'individual provider overrides',
     )
   })
 
@@ -55,7 +56,8 @@ describe('runPipeline useFakes guards', () => {
         providers: createFakeProviders(),
       }),
     ).rejects.toThrow(
-      'runPipeline: `useFakes` cannot be combined with explicit `providers` or `stages`',
+      'runPipeline: `useFakes` cannot be combined with explicit `providers`, `stages`, or ' +
+        'individual provider overrides',
     )
   })
 })

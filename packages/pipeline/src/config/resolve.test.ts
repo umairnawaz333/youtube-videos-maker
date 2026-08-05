@@ -130,6 +130,15 @@ describe('resolveConfig precedence', () => {
     expect(resolved.retries.local).toBe(DEFAULT_APP_CONFIG.retries.local)
   })
 
+  it('merges nested llm config per key instead of replacing the object', () => {
+    const resolved = resolveConfig({
+      niche,
+      request: { llm: { topicScoutMaxCandidates: 5 } as unknown as AppConfig['llm'] },
+    })
+    expect(resolved.llm.topicScoutMaxCandidates).toBe(5)
+    expect(resolved.llm.temperature).toBe(DEFAULT_APP_CONFIG.llm.temperature)
+  })
+
   it('lets the request win over the app layer on the same nested key while preserving each layer\'s untouched keys', () => {
     // app overrides llm and network; request overrides only network.
     // Expect: network from request (wins), llm from app (app-only key survives),

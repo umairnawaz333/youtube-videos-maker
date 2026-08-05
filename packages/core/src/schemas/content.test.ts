@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS } from '@yt/core'
+import { FactCheckSchema, ScriptSchema, ScenePlanSchema, SeoSchema, SECTION_KINDS, TopicSchema } from '@yt/core'
 
 const beat = (seconds: number) => ({ id: 'b1', text: 'Narration line.', targetSeconds: seconds })
 
@@ -142,5 +142,87 @@ describe('SeoSchema', () => {
 
   it('rejects a description over five thousand characters', () => {
     expect(SeoSchema.safeParse(seo({ description: 'x'.repeat(5001) })).success).toBe(false)
+  })
+})
+
+describe('TopicSchema', () => {
+  const topic = (overrides: Record<string, unknown> = {}) => ({
+    key: 'venus-retrograde-rotation',
+    title: 'Why Venus rotates backwards',
+    source: 'wikipedia-top',
+    url: 'https://en.wikipedia.org/wiki/Venus',
+    angle: 'Follow the single measurement that overturned the assumption.',
+    scores: { curiosity: 8, explainability: 7, visualPotential: 6, evergreen: 9 },
+    total: 30,
+    ...overrides,
+  })
+
+  it('accepts a well-formed selected topic', () => {
+    expect(TopicSchema.safeParse(topic()).success).toBe(true)
+  })
+
+  it('allows a null url, since not every trend source has one', () => {
+    expect(TopicSchema.safeParse(topic({ url: null })).success).toBe(true)
+  })
+
+  it('rejects a source that is not a known trend source', () => {
+    expect(TopicSchema.safeParse(topic({ source: 'tiktok' })).success).toBe(false)
+  })
+
+  it('rejects a score outside 0-10', () => {
+    const bad = topic({ scores: { curiosity: 11, explainability: 7, visualPotential: 6, evergreen: 9 } })
+    expect(TopicSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects an empty key, because the key is the permanent dedupe identity', () => {
+    expect(TopicSchema.safeParse(topic({ key: '' })).success).toBe(false)
+  })
+})
+
+describe('FactCheckSchema', () => {
+  const report = (overrides: Record<string, unknown> = {}) => ({
+    claims: [{ text: 'A claim.', verdict: 'supported' }],
+    failureRatio: 0,
+    ...overrides,
+  })
+
+  it('accepts a well-formed report', () => {
+    expect(FactCheckSchema.safeParse(report()).success).toBe(true)
+  })
+
+  it('accepts a claim with no sourceUrl at all', () => {
+    expect(FactCheckSchema.safeParse(report()).success).toBe(true)
+  })
+
+  it('accepts a well-formed sourceUrl', () => {
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'https://en.wikipedia.org/wiki/Venus' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(true)
+  })
+
+  it('rejects a sourceUrl that is not a well-formed URL', () => {
+    // The fact-checker stage never lets the model type its own URL — it maps a fact index to
+    // the fact's real, already-validated sourceUrl (see fact-checker.ts). Any string reaching
+    // this schema that isn't a well-formed URL is a bug in that mapping, not a model quirk to
+    // tolerate: a fabricated citation is worse than none for a project whose point is grounding.
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: 'NASA, official site' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
+  })
+
+  it('rejects an empty sourceUrl string', () => {
+    const claims = [{ text: 'A claim.', verdict: 'supported', sourceUrl: '' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
+  })
+
+  it('rejects an unknown verdict', () => {
+    const claims = [{ text: 'A claim.', verdict: 'maybe' }]
+    expect(FactCheckSchema.safeParse(report({ claims })).success).toBe(false)
+  })
+
+  it('rejects a failureRatio outside 0-1', () => {
+    expect(FactCheckSchema.safeParse(report({ failureRatio: 1.5 })).success).toBe(false)
+  })
+
+  it('rejects an empty claims array', () => {
+    expect(FactCheckSchema.safeParse(report({ claims: [] })).success).toBe(false)
   })
 })

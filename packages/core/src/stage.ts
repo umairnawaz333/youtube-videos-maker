@@ -10,7 +10,7 @@ export interface RunLogger {
   error(message: string, meta?: Record<string, unknown>): void
 }
 
-export type ArtifactName = 'research' | 'script' | 'factcheck' | 'scenes' | 'seo' | 'videoSpec'
+export type ArtifactName = 'topic' | 'research' | 'script' | 'factcheck' | 'scenes' | 'seo' | 'videoSpec'
 
 export interface ArtifactStore {
   write<T>(name: ArtifactName, schema: z.ZodType<T>, data: T): Promise<void>

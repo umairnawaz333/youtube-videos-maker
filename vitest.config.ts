@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     include: ['packages/**/*.test.ts', 'test/**/*.test.ts'],
+    // The opt-in integration suite is slow and loads a real model — it has its own config
+    // (vitest.integration.config.ts) and must never run as part of the default suite.
+    exclude: ['**/node_modules/**', 'test/integration/**'],
     environment: 'node',
     restoreMocks: true,
     globalSetup: ['./test/setup/global-db.ts'],

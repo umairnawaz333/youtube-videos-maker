@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { STAGE_NAMES } from '@yt/core'
 import type { Repositories } from '@yt/db'
 import { runPipeline } from '@yt/pipeline'
+import { FixedClock } from '@yt/providers'
 import { createTestDb } from '../setup/db'
 
 let repos: Repositories
@@ -34,6 +35,7 @@ describe('end-to-end pipeline with fakes', () => {
       storageRoot,
       request: { niche: 'space', videoType: 'shorts', clips: undefined },
       useFakes: true,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
     })
 
     expect(result.status).toBe('awaiting_review')
@@ -48,6 +50,7 @@ describe('end-to-end pipeline with fakes', () => {
       storageRoot,
       request: { niche: 'space', videoType: 'shorts' },
       useFakes: true,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
     })
 
     const root = path.join(storageRoot, 'videos', 'run-e2e')
@@ -65,6 +68,7 @@ describe('end-to-end pipeline with fakes', () => {
       storageRoot,
       request: { niche: 'space', videoType: 'shorts' },
       useFakes: true,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
     })
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
 
@@ -80,6 +84,7 @@ describe('end-to-end pipeline with fakes', () => {
       storageRoot,
       request: { niche: 'space', videoType: 'shorts' },
       useFakes: true,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
       onLog: (entry) => messages.push(entry.message),
     })
 
@@ -109,11 +114,30 @@ describe('end-to-end pipeline with fakes', () => {
       storageRoot,
       request: { niche: 'space', videoType: 'shorts' },
       useFakes: true,
+      clock: new FixedClock('2026-08-01T10:00:00.000Z'),
       onLog: (entry) => messages.push(entry.message),
     })
 
     expect(result.status).toBe('awaiting_review')
     expect(messages).toContain('skipping topic-scout, already completed')
     expect(messages).not.toContain('completed topic-scout')
+  })
+
+  it('defaults to a real clock so production runs get real timestamps', async () => {
+    const before = Date.now()
+    await runPipeline({
+      runId: 'run-clock',
+      repos,
+      configDir,
+      storageRoot,
+      request: { niche: 'space', videoType: 'shorts' },
+      useFakes: true,
+      // deliberately no clock
+    })
+    const run = await repos.runs.get('run-clock')
+    const createdAt = run!.createdAt.getTime()
+
+    expect(createdAt).toBeGreaterThanOrEqual(before)
+    expect(createdAt).toBeLessThanOrEqual(Date.now())
   })
 })
