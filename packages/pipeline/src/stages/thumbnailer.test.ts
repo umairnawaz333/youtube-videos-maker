@@ -65,7 +65,7 @@ describe('createThumbnailerStage', () => {
     await h.cleanup()
   })
 
-  it('generates exactly five hero candidates named v1..v5.png', async () => {
+  it('generates exactly five raw hero candidates named raw-v1..raw-v5.png, the names the editor composites from', async () => {
     await h.ctx.artifacts.write('scenes', ScenePlanSchema, {
       scenes: [
         sceneFor('scene-1', 'hook-0', { kind: 'sd-image', prompt: 'a lone comet' }),
@@ -76,7 +76,7 @@ describe('createThumbnailerStage', () => {
     await expect(createThumbnailerStage().run(h.ctx)).resolves.toEqual({ status: 'done' })
 
     for (let i = 1; i <= 5; i++) {
-      const stat = await fs.stat(path.join(h.ctx.paths.thumbnail, `v${i}.png`))
+      const stat = await fs.stat(path.join(h.ctx.paths.thumbnail, `raw-v${i}.png`))
       expect(stat.isFile()).toBe(true)
     }
     expect(fakeCalls(h).images).toHaveLength(5)

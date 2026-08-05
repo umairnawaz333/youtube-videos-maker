@@ -1,29 +1,28 @@
 import { z } from 'zod'
 import { CAMERA_MOVES, VIDEO_FORMATS } from '../domain'
+import {
+  CaptionWordSchema,
+  CaptionWordsFileSchema,
+  type CaptionWordEntry,
+  type CaptionWordsFile,
+} from './audio'
 import { BrandCornerSchema } from './config'
 
 /**
- * One word with its measured timing, in seconds from the start of the whole video (not the
- * scene). Matches `CaptionProvider`'s `CaptionWord` shape in `providers.ts`, but that
- * interface returns per-clip words; this is the assembled, video-relative track the renderer
- * actually consumes.
+ * `captions/words.json` — written by the Captioner, read by the Editor.
+ *
+ * Deliberately an alias rather than a second definition. The audio and render blocks were built
+ * in parallel and each declared its own schema for this file; they happened to agree, but two
+ * independent descriptions of one file on disk is precisely how the thumbnail naming drifted
+ * (raw heroes written as `vN.png` while the compositor searched for `raw-vN.png`). The writer
+ * owns the contract, so `schemas/audio.ts` is the single source of truth and the renderer reads
+ * through it.
  */
-export const RenderCaptionWordSchema = z.object({
-  word: z.string().min(1),
-  startSec: z.number().nonnegative(),
-  endSec: z.number().nonnegative(),
-})
-export type RenderCaptionWord = z.infer<typeof RenderCaptionWordSchema>
+export const RenderCaptionWordSchema = CaptionWordSchema
+export type RenderCaptionWord = CaptionWordEntry
 
-/**
- * Contract for `captions/words.json`, written by the Captioner stage (Plan 4 audio block).
- * Kept here — rather than assumed inline by the Editor — so the boundary between stages is
- * one visible type instead of an implicit file shape.
- */
-export const CaptionsFileSchema = z.object({
-  words: z.array(RenderCaptionWordSchema),
-})
-export type CaptionsFile = z.infer<typeof CaptionsFileSchema>
+export const CaptionsFileSchema = CaptionWordsFileSchema
+export type CaptionsFile = CaptionWordsFile
 
 /**
  * A scene's visual, resolved to concrete render inputs. Distinct from `SceneVisualSchema` in

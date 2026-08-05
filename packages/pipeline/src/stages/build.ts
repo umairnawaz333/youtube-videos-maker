@@ -1,8 +1,11 @@
 import type { Stage } from '@yt/core'
 import { createCaptionerStage } from './captioner'
+import { createClipGateStage } from './clip-gate'
+import { createEditorStage } from './editor'
 import { createFactCheckerStage } from './fact-checker'
 import { createIllustratorStage } from './illustrator'
 import { createNarratorStage } from './narrator'
+import { createQualityGateStage } from './quality-gate'
 import { createResearcherStage } from './researcher'
 import { createScenePlannerStage } from './scene-planner'
 import { createScriptWriterStage } from './script-writer'
@@ -39,4 +42,18 @@ export const buildMediaStages = (): Stage[] => [
   createThumbnailerStage(),
   createNarratorStage(),
   createCaptionerStage(),
+]
+
+/**
+ * Stages 1-13: everything except the Publisher, which needs Google OAuth credentials the repo
+ * cannot ship. This is the longest pipeline that runs without an external account, and it ends
+ * where the design says it should — at a finished video awaiting a human review click.
+ *
+ * Still a leading prefix of STAGE_NAMES, which StageRunner enforces.
+ */
+export const buildFullStages = (): Stage[] => [
+  ...buildMediaStages(),
+  createClipGateStage(),
+  createEditorStage(),
+  createQualityGateStage(),
 ]
