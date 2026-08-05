@@ -1,18 +1,25 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AppConfig,
   Clock,
   LlmProvider,
   ProviderBundle,
+  PublishProvider,
   ResearchProvider,
   RunContext,
   Stage,
   TrendProvider,
 } from '@yt/core'
+import { PublishResultSchema } from '@yt/core'
 import { createRepositories, createPrismaClient, type Repositories } from '@yt/db'
 import {
   createFakeProviders,
+  createHttpImageProvider,
   createHttpOllamaClient,
+  createKokoroTtsProvider,
+  createWhisperCliCaptionProvider,
+  createYoutubePublishProvider,
   HttpTrendProvider,
   OllamaLlmProvider,
   WikipediaResearchProvider,
@@ -27,7 +34,7 @@ import {
 } from './doctor'
 import { EventRunLogger, type LogEntry } from './logger'
 import { ModelBroker, type Evictable } from './model-broker'
-import { buildLlmStages } from './stages'
+import { buildFullStages } from './stages'
 import { StageRunner, type RunResult } from './stage-runner'
 import { FileArtifactStore } from './storage/artifacts'
 import { ensureRunDirs, runPaths } from './storage/paths'
@@ -125,7 +132,41 @@ export const runPipeline = async (opts: RunPipelineOptions): Promise<RunResult> 
     clock,
   })
 
-  return runner.execute(ctx)
+  const result = await runner.execute(ctx)
+
+  // The Publisher records its upload by writing publish-result.json, because RunContext
+  // deliberately exposes no `runs` repository to stages. Reading it back here is the one place
+  // that owns both the repositories and the finished run, so the video id reaches the Run row
+  // without widening the stage contract.
+  if (result.status === 'published' || result.status === 'awaiting_review') {
+    await recordPublishedVideoId(paths.root, opts.runId, opts.repos)
+  }
+
+  return result
+}
+
+/**
+ * Best-effort: a run that never reached the Publisher has no result file, which is normal and
+ * not an error. A malformed one is worth a warning but must not fail a run whose video is
+ * already uploaded.
+ */
+const recordPublishedVideoId = async (
+  runRoot: string,
+  runId: string,
+  repos: Repositories,
+): Promise<void> => {
+  let raw: string
+  try {
+    raw = await fs.readFile(path.join(runRoot, 'publish-result.json'), 'utf8')
+  } catch {
+    return
+  }
+
+  const parsed = PublishResultSchema.safeParse(JSON.parse(raw))
+  if (!parsed.success) return
+
+  await repos.runs.recordVideoId(runId, parsed.data.videoId)
+  await repos.runs.setStatus(runId, 'published')
 }
 
 const repoRoot = path.resolve(__dirname, '../../..')
@@ -175,6 +216,36 @@ const main = async () => {
     const databaseUrl = process.env.DATABASE_URL ?? `file:${path.join(repoRoot, 'storage/factory.db')}`
     const prisma = createPrismaClient(databaseUrl)
     const runId = process.argv[3] ?? `run-${process.pid}`
+    const storageRoot = process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage')
+
+    // Every media provider is real here. Leaving any of them as a fake would be worse than a
+    // crash: createFakeProviders() emits a solid-colour PNG and a sine-wave WAV, so an
+    // unwired provider yields a run that reports success and produces a video nobody would
+    // watch, with nothing in the output marking it as fake.
+    const image = createHttpImageProvider({
+      host: process.env.IMAGEGEN_HOST ?? 'http://127.0.0.1:8188',
+    })
+    const tts = createKokoroTtsProvider({
+      modelPath: process.env.KOKORO_MODEL_PATH ?? path.join(repoRoot, 'models/tts/kokoro-v1.0.onnx'),
+      voicesPath: process.env.KOKORO_VOICES_PATH ?? path.join(repoRoot, 'models/tts/voices-v1.0.bin'),
+      pythonBin: process.env.PYTHON_BIN ?? path.join(repoRoot, '.venv/bin/python3'),
+    })
+    const caption = createWhisperCliCaptionProvider({
+      modelPath:
+        process.env.WHISPER_MODEL_PATH ?? path.join(repoRoot, 'models/whisper/ggml-base.en.bin'),
+    })
+
+    // Constructed lazily, and deliberately NOT eagerly: createYoutubePublishProvider() reads
+    // the OAuth credentials at construction time and throws when they are absent. Building it
+    // up front would make every run fail before topic-scout on a machine that has no YouTube
+    // credentials yet — even though the Publisher only uploads after the review click, and the
+    // other thirteen stages need no credentials at all. Deferring means the missing-credential
+    // error surfaces from the one stage that actually needs them, saying exactly what is missing.
+    const publish: PublishProvider = {
+      async publish(request) {
+        return createYoutubePublishProvider({ storageRoot }).publish(request)
+      },
+    }
 
     // The disconnect must happen whether runPipeline resolves or rejects — a database
     // failure at run start (before StageRunner's own try/finally is established) is a
@@ -185,11 +256,12 @@ const main = async () => {
         runId,
         repos: createRepositories(prisma),
         configDir: path.join(repoRoot, 'config'),
-        storageRoot: process.env.STORAGE_ROOT ?? path.join(repoRoot, 'storage'),
-        // Real stages need real providers. Everything the LLM block does not touch stays fake
-        // until the plans that implement it land.
-        providers: createFakeProviders(),
-        stages: buildLlmStages(),
+        storageRoot,
+        // Fakes supply only `clip`, whose real provider is per-run (it needs the run's own
+        // clips/ paths) and is constructed by the stage from ctx. Every other provider below is
+        // real, so no media asset can silently come from a fake.
+        providers: { ...createFakeProviders(), image, tts, caption, publish },
+        stages: buildFullStages(),
         llm,
         trend: new HttpTrendProvider({ log: (m) => console.log(`[trend] ${m}`) }),
         research: new WikipediaResearchProvider({ log: (m) => console.log(`[research] ${m}`) }),

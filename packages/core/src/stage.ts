@@ -71,7 +71,17 @@ export interface RunContext {
 
 export type StageOutcome =
   | { status: 'done' }
-  | { status: 'paused'; reason: 'awaiting_clips' }
+  /**
+   * A stage stopping to wait for a human, NOT a failure. The reason names which kind of wait,
+   * and StageRunner maps it straight onto the matching RunStatus.
+   *
+   * `awaiting_review` was added for the Publisher's review gate. `RUN_STATUSES` already carried
+   * the value, but this type only permitted `awaiting_clips`, so the gate had no way to express
+   * itself except `halted` — which StageRunner maps to `failed`. A run waiting for a human to
+   * click Publish would have been recorded as a failed run, and the dashboard shows its Publish
+   * button only for `awaiting_review`, so the button could never appear.
+   */
+  | { status: 'paused'; reason: 'awaiting_clips' | 'awaiting_review' }
   /** Quality gate and fact checker use this to stop the run with a readable reason. */
   | { status: 'halted'; reason: string }
 

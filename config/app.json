@@ -8,6 +8,7 @@
   "captions": true,
   "thumbnail": true,
   "autoPublish": false,
+  "privacy": "private",
   "clips": {
     "enabled": true,
     "source": "manual",

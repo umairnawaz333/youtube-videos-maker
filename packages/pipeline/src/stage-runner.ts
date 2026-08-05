@@ -81,9 +81,14 @@ export class StageRunner {
         if (outcome.kind === 'paused') {
           // Deliberately not marked done: the stage re-runs on resume to collect the
           // assets the human supplied while the run was paused.
-          await repos.runs.setStatus(ctx.runId, 'awaiting_clips')
-          ctx.log.info(`paused awaiting human input`, { stage: stage.name })
-          return { status: 'awaiting_clips', stoppedAt: stage.name }
+          //
+          // The status comes from the stage's own pause reason rather than being hardcoded —
+          // ClipGate waits for uploaded footage ('awaiting_clips'), the Publisher waits for the
+          // review click ('awaiting_review'), and recording either as the other would mislead
+          // the dashboard about what the run is actually waiting for.
+          await repos.runs.setStatus(ctx.runId, outcome.reason)
+          ctx.log.info(`paused ${outcome.reason.replace('_', ' ')}`, { stage: stage.name })
+          return { status: outcome.reason, stoppedAt: stage.name }
         }
 
         await repos.runs.finishStage(ctx.runId, stage.name, clock.now())
@@ -118,7 +123,7 @@ export class StageRunner {
     stage: Stage,
   ): Promise<
     | { kind: 'done' }
-    | { kind: 'paused' }
+    | { kind: 'paused'; reason: 'awaiting_clips' | 'awaiting_review' }
     | { kind: 'halted'; reason: string }
     | { kind: 'failed'; reason: string }
   > {
@@ -150,7 +155,7 @@ export class StageRunner {
 
       try {
         const outcome = await stage.run(ctx)
-        if (outcome.status === 'paused') return { kind: 'paused' }
+        if (outcome.status === 'paused') return { kind: 'paused', reason: outcome.reason }
         if (outcome.status === 'halted') {
           await repos.runs.failStage(ctx.runId, stage.name, outcome.reason, clock.now())
           return { kind: 'halted', reason: outcome.reason }
