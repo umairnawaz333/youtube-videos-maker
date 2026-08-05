@@ -171,6 +171,12 @@ export const createFakeProviders = (
         sourceUrl: `https://example.invalid/${encodeURIComponent(query)}#${i + 1}`,
       }))
     },
+    // Empty by default rather than fabricating a plausible source-article page: a fake source
+    // that always "succeeds" would hide the fallback path this exists to exercise. Tests that
+    // need to prove the researcher stage consumes source-article facts override this directly.
+    async lookupSource() {
+      return []
+    },
   }
 
   return { llm, tts, image, clip, caption, publish, trend, research, calls }

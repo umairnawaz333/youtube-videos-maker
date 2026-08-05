@@ -10,14 +10,15 @@ Everything this project downloads lives inside the repo. Deleting the repo rever
 
 ```bash
 pnpm install
-pnpm --filter @yt/db db:generate
-DATABASE_URL="file:../../../storage/factory.db" pnpm --filter @yt/db db:push
+pnpm db:setup         # creates .env from .env.example if missing, generates the Prisma
+                      # client, and pushes the schema — safe to re-run
 pnpm ollama:setup     # installs bin/ollama and pulls the model into models/ollama
 pnpm check            # preflight: every dependency and model
 ```
 
 `pnpm check` is the doctor. It exits non-zero when a **required** check fails; missing model
-weights only warn. Note `pnpm doctor` does NOT work — it collides with pnpm's own built-in
+weights only warn, and so does an unreachable model server (it may just not be started yet —
+see "Running" below). Note `pnpm doctor` does NOT work — it collides with pnpm's own built-in
 `doctor` subcommand, which is why the alias exists.
 
 ## Running

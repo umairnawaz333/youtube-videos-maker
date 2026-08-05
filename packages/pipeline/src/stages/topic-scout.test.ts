@@ -250,7 +250,7 @@ describe('createTopicScoutStage', () => {
 
     await createTopicScoutStage().run(h.ctx)
 
-    expect(seenOpts).toEqual({ temperature: 0.42 })
+    expect(seenOpts).toEqual({ temperature: 0.42, numCtx: h.ctx.config.llm.numCtx })
   })
 })
 

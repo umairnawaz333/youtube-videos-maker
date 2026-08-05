@@ -7,7 +7,10 @@ export interface Clock {
 
 export interface LlmProvider {
   /** Free-form completion. Used for scoring and rewriting. */
-  complete(prompt: string, opts?: { temperature?: number; maxTokens?: number }): Promise<string>
+  complete(
+    prompt: string,
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
+  ): Promise<string>
   /**
    * Completion constrained to a JSON shape. The adapter is responsible for retrying
    * until the response parses, so stages never see malformed JSON.
@@ -16,7 +19,7 @@ export interface LlmProvider {
     prompt: string,
     schemaName: string,
     parse: (raw: unknown) => T,
-    opts?: { temperature?: number; maxTokens?: number },
+    opts?: { temperature?: number; maxTokens?: number; numCtx?: number },
   ): Promise<T>
   /** Releases model memory. Called by the ModelBroker, never by a stage. */
   unload(): Promise<void>
@@ -117,6 +120,14 @@ export interface ResearchFact {
 export interface ResearchProvider {
   /** Returns grounding facts with their sources. An empty array means nothing was found. */
   lookup(query: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]>
+  /**
+   * Returns grounding facts extracted from one specific URL — the primary source for a
+   * news-derived topic (the trend candidate's own article), as distinct from `lookup`'s
+   * encyclopedic background research. Must never throw: a page that cannot be fetched, or
+   * whose content does not look like real article prose, resolves to an empty array so a bad
+   * source degrades the corpus rather than aborting the run.
+   */
+  lookupSource(url: string, opts?: { maxFacts?: number }): Promise<ResearchFact[]>
 }
 
 export interface ProviderBundle {

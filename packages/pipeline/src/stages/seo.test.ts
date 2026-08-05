@@ -242,6 +242,10 @@ describe('createSeoStage', () => {
     await createSeoStage().run(h.ctx)
 
     expect(seenOpts.length).toBeGreaterThan(0)
-    expect(seenOpts.every((o) => JSON.stringify(o) === JSON.stringify({ temperature: 0.33 }))).toBe(true)
+    expect(
+      seenOpts.every(
+        (o) => JSON.stringify(o) === JSON.stringify({ temperature: 0.33, numCtx: h.ctx.config.llm.numCtx }),
+      ),
+    ).toBe(true)
   })
 })

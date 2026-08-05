@@ -55,11 +55,16 @@ describe('titlesFromFeed (via the arxiv fetcher)', () => {
 })
 
 describe('the nasa fetcher', () => {
-  it('drops the feed\'s own title and returns each entry tagged with source "nasa"', async () => {
+  it('drops the feed\'s own title and returns each entry tagged with source "nasa", carrying that entry\'s own link', async () => {
+    // A real NASA item — confirmed live against https://www.nasa.gov/feed/ — carries its own
+    // <link>, which is the only citable source for a current news event that has no Wikipedia
+    // article of its own; the researcher stage depends on this URL being real, not null.
     const xml =
-      '<rss><channel><title>NASA</title>' +
-      '<item><title><![CDATA[NASA Will Attempt to Observe Rocket Part’s Lunar Impact]]></title></item>' +
-      '<item><title><![CDATA[APOD: 2026 August 4 – Curious Cometary Knots]]></title></item>' +
+      '<rss><channel><title>NASA</title><link>https://www.nasa.gov</link>' +
+      '<item><title><![CDATA[NASA Will Attempt to Observe Rocket Part’s Lunar Impact]]></title>' +
+      '<link>https://www.nasa.gov/humans-in-space/nasa-will-attempt-to-observe-rocket-parts-lunar-impact/</link></item>' +
+      '<item><title><![CDATA[APOD: 2026 August 4 – Curious Cometary Knots]]></title>' +
+      '<link>https://www.nasa.gov/apod/2026-08-04/</link></item>' +
       '</channel></rss>'
 
     const got = await SOURCE_FETCHERS.nasa(fetchReturningXml(xml))
@@ -69,14 +74,27 @@ describe('the nasa fetcher', () => {
         key: expect.stringContaining('nasa-will-attempt-to-observe-rocket-part'),
         title: 'NASA Will Attempt to Observe Rocket Part’s Lunar Impact',
         source: 'nasa',
-        url: null,
+        url: 'https://www.nasa.gov/humans-in-space/nasa-will-attempt-to-observe-rocket-parts-lunar-impact/',
       },
       {
         key: expect.stringContaining('apod-2026-august-4'),
         title: 'APOD: 2026 August 4 – Curious Cometary Knots',
         source: 'nasa',
-        url: null,
+        url: 'https://www.nasa.gov/apod/2026-08-04/',
       },
+    ])
+  })
+
+  it('resolves an entry with no <link> of its own to a null url rather than dropping it', async () => {
+    const xml =
+      '<rss><channel><title>NASA</title>' +
+      '<item><title><![CDATA[An item without its own link]]></title></item>' +
+      '</channel></rss>'
+
+    const got = await SOURCE_FETCHERS.nasa(fetchReturningXml(xml))
+
+    expect(got).toEqual([
+      { key: expect.stringContaining('an-item-without-its-own-link'), title: 'An item without its own link', source: 'nasa', url: null },
     ])
   })
 })

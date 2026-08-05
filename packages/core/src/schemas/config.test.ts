@@ -61,6 +61,46 @@ describe('AppConfigSchema', () => {
     }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
+
+  it('defaults the research corpus floor to 1.5 facts per targeted beat', () => {
+    expect(DEFAULT_APP_CONFIG.llm.researchMinFactsPerBeat).toBe(1.5)
+  })
+
+  it('rejects a non-positive research corpus floor', () => {
+    const bad = {
+      ...DEFAULT_APP_CONFIG,
+      llm: { ...DEFAULT_APP_CONFIG.llm, researchMinFactsPerBeat: 0 },
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('defaults the context window to 16384 tokens, four times Ollama\'s own 4096 default', () => {
+    expect(DEFAULT_APP_CONFIG.llm.numCtx).toBe(16384)
+  })
+
+  it('rejects a non-positive context window', () => {
+    const bad = { ...DEFAULT_APP_CONFIG, llm: { ...DEFAULT_APP_CONFIG.llm, numCtx: 0 } }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a non-integer context window', () => {
+    const bad = { ...DEFAULT_APP_CONFIG, llm: { ...DEFAULT_APP_CONFIG.llm, numCtx: 4096.5 } }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('defaults the per-prompt fact cap to 60, above the 36-fact floor a long-form run must clear', () => {
+    expect(DEFAULT_APP_CONFIG.llm.maxFactsPerPrompt).toBe(60)
+  })
+
+  it('rejects a non-positive fact-per-prompt cap', () => {
+    const bad = { ...DEFAULT_APP_CONFIG, llm: { ...DEFAULT_APP_CONFIG.llm, maxFactsPerPrompt: 0 } }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a non-integer fact-per-prompt cap', () => {
+    const bad = { ...DEFAULT_APP_CONFIG, llm: { ...DEFAULT_APP_CONFIG.llm, maxFactsPerPrompt: 12.5 } }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
 })
 
 describe('NicheConfigSchema', () => {
